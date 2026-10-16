@@ -1,0 +1,76 @@
+{
+  "name": "mon-orga",
+  "productName": "Mon Orga",
+  "version": "5.0.0",
+  "description": "Mon Orga : tâches, notes et agenda, synchronisés avec le téléphone",
+  "author": "Sayan",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test \"test/*.test.js\"",
+    "dist:win": "electron-builder --win --x64 --publish never",
+    "dist:linux": "electron-builder --linux --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "43.7.7",
+    "electron-builder": "26.17.0",
+    "playwright": "1.56.1"
+  },
+  "build": {
+    "appId": "com.sayan.monorga",
+    "productName": "Mon Orga",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "sync.js",
+      "package.json",
+      "build/icon.png",
+      {
+        "from": "../web/src",
+        "to": "web"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Mon Orga",
+      "artifactName": "Mon-Orga-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Mon-Orga-${version}-portable.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Office",
+      "icon": "build/icon.png",
+      "artifactName": "Mon-Orga-${version}-linux.${ext}"
+    }
+  }
+}

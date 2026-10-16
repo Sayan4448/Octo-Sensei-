@@ -77,6 +77,7 @@
   }
 
   function desktop(D) {
+    if (D.onAction) D.onAction(a => window.app && window.app.action(a)) // tray menu, notification clicks
     return Object.assign({}, browserBits, {
       platform: 'desktop', version: D.version,
       can: { files: true, photos: true, sync: 'client', tray: true, alarms: true },

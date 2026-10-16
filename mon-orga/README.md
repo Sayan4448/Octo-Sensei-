@@ -1,29 +1,51 @@
 # Mon Orga 📋
 
-Petite app Android d'organisation, en Kotlin, avec Material Design 3 (thème clair et sombre automatique). Trois onglets en bas de l'écran :
+Tâches, notes et agenda, sur téléphone Android et PC Windows (et Linux), synchronisés sur le même Wi-Fi.
+Le mode d'emploi pour l'installer est dans le [README principal](../README.md#-mon-orga).
 
-- **✅ Tâches** : tape un truc à faire (« ranger le linge ») puis « + ». Touche une tâche pour la cocher : elle descend en bas de la liste. Reste appuyé pour la modifier, la supprimer ou la **programmer** : « 📅 Programmer un rappel » → jour → heure. La tâche affiche sa date (en rouge si c'est dépassé) et le téléphone sonne à l'heure dite. « Effacer les terminées » vide d'un coup les tâches cochées.
-- **📝 Notes** : « Nouvelle note » pour écrire (plusieurs lignes possibles). Touche pour ouvrir/modifier, reste appuyé pour supprimer. Le bouton retour enregistre, seul « Annuler » jette le texte.
-- **📅 Agenda** : touche un jour du calendrier, puis « Ajouter » → nom → heure (ou « Journée »). Les tâches programmées ce jour-là s'y affichent aussi (avec un 🔔). Touche un élément pour le modifier ou le supprimer. Sous le calendrier, une ligne indique les jours du mois qui ont quelque chose de prévu, et « À venir » montre les 3 prochains événements ou tâches programmées.
+## Mode d'emploi express
 
-Tout est sauvegardé sur le téléphone, même après fermeture de l'app. Les tâches des versions précédentes sont conservées.
+- **Ajouter** : écris en bas, avec la date si tu veux. « Dentiste jeudi 14h30 », « Médicament tous les jours à 8h », « Courses ce soir », « Appeler Paul dans 2 h ». Sous le champ, l'app montre ce qu'elle a compris (une croix l'annule). Plusieurs lignes collées = plusieurs tâches.
+- **Cocher** : touche le rond. Une erreur ? *Annuler* dans le bandeau. Une tâche qui se répète passe à sa prochaine date.
+- **Tout régler** : touche la tâche. Date et heure (ou boutons tout faits), rappels (à l'heure, 10 min avant, la veille…), *Sonner comme un réveil*, répétition, étapes, liste, détails, *Focus 25 min*.
+- **En retard** : le bouton *Demain* reporte d'un jour ; *Tout à demain* reporte toutes les tâches en retard.
+- **Notes** : la première ligne sert de titre. `- [ ]` fait une case à cocher (bouton *Case à cocher*), les liens, numéros et e-mails deviennent cliquables, une note peut avoir des photos et être épinglée.
+- **Agenda** : touche un jour, puis *Rendez-vous*. Toute la journée ou à une heure, sur plusieurs jours, avec lieu, rappel, répétition et note liée. Supprimer une date d'une série : *Seulement le …*.
+- **Rechercher** : la loupe cherche partout, accents ou pas.
+- **Plus** : progrès, version PC, réglages des rappels (résumé du matin, relances, durée de *Plus tard*, test), sauvegarde, affichage (thème, taille, langue, mode sobre, couleurs douces, gaucher), verrou.
+- **Sur PC** : `Ctrl+N` ajoute, `Ctrl+F` cherche, `Échap` ferme, `Alt+1…4` change d'onglet.
 
-## Installer sur ton téléphone
+## Comment c'est fait
 
-1. Récupère `MesTaches.apk` (Claude l'envoie dans la conversation à chaque version ; il n'est pas dans git) sur ton téléphone Android (8.0 ou plus).
-2. Ouvre-le et autorise « Installer des applis inconnues » quand Android le demande.
-3. Au premier rappel programmé, l'app demande l'autorisation d'envoyer des notifications : accepte, sinon elle ne sonnera pas.
-
-Pour mettre à jour, installe la nouvelle version **par-dessus** l'ancienne. Ne la désinstalle jamais avant : ça effacerait tes tâches, notes et événements.
-
-## Compiler toi-même
-
-Ouvre ce dossier dans Android Studio, ou en ligne de commande (JDK 21, celui fourni avec Android Studio) :
-
-```sh
-./gradlew testDebugUnitTest assembleDebug
-# APK : build/outputs/apk/debug/MesTaches-debug.apk
-# Captures d'écran des tests (clair et sombre) : build/screenshots/
+```
+mon-orga/
+├─ web/       l'interface (HTML, CSS, JavaScript sans dépendance), la même partout
+│  ├─ src/    index.html, style.css, i18n.js (français, anglais), store.js (données, dates, rappels), host.js, app.js
+│  └─ test/   tests du modèle, test de l'interface dans Chromium, cas partagés avec Android (fixtures.json)
+├─ android/   l'appli Android (Kotlin) : affiche web/src dans une WebView et ajoute rappels, widget, raccourcis, verrou, serveur PC
+├─ pc/        l'appli PC (Electron) : affiche web/src, garde les données dans un fichier, rappels Windows, synchro avec le téléphone
+└─ docs/      captures d'écran du README
 ```
 
-L'APK est signé avec `debug.keystore` (dans ce dossier) : c'est ce qui permet d'installer chaque nouvelle version par-dessus la précédente.
+- **Données** : un seul document JSON (tâches, notes, rendez-vous, historique). Chaque élément a un `id` et une date de modification `updatedAt` : pour fusionner deux copies (téléphone, PC, sauvegarde), la plus récente gagne. Une suppression reste un mois comme « pierre tombale » pour se propager. Le format est décrit en tête de [`web/src/store.js`](web/src/store.js) ; Android le lit dans [`Store.kt`](android/src/main/kotlin/com/sayan/todo/Store.kt) sans toucher aux champs qu'il ne connaît pas.
+- **Rappels** : l'interface et Android calculent les mêmes dates (répétitions, rappels avant, journées entières à 9 h) ; les cas de [`web/test/fixtures.json`](web/test/fixtures.json) sont vérifiés des deux côtés. Android garde une seule alarme exacte, réglée sur le prochain rappel ; quand elle sonne, tout ce qui est dû depuis la dernière vérification sonne (les rappels manqués pendant que le téléphone était éteint aussi).
+- **Synchro** : l'interrupteur *Ouvrir Mon Orga sur le PC* démarre un petit serveur sur le téléphone (port 8080). `/api/ping` répond à tout le monde (pour que le PC trouve le téléphone) ; les données (`/api/state`, `/api/sync`) exigent le code à 6 chiffres, et 10 mauvais codes bloquent une minute. L'appli PC envoie son document toutes les 15 secondes et après chaque modification ; le téléphone fusionne et renvoie le résultat. Un navigateur ouvert sur l'adresse du téléphone affiche la même interface.
+
+## Développer
+
+| | Commande (depuis le dossier) |
+|---|---|
+| Interface : tests | `cd web && npm ci && npx playwright install chromium && TZ=Europe/Paris npm test` |
+| Interface : l'essayer dans un navigateur | `cd web && node test/serve.js` puis http://127.0.0.1:8123 |
+| Interface : refaire les captures | `cd web && npm run screenshots` |
+| Android : tests et APK | `cd android && ./gradlew testDebugUnitTest assembleDebug` (JDK 21, `ANDROID_HOME`) → `build/outputs/apk/debug/MonOrga-debug.apk` |
+| PC : tests | `cd pc && npm ci && npm test` (sous Linux sans écran : `xvfb-run -a npm test`) |
+| PC : lancer | `cd pc && npm start` |
+| PC : fabriquer l'installateur Windows | `cd pc && npm run dist:win` → `dist/` |
+
+L'APK est signé avec [`android/debug.keystore`](android/debug.keystore), gardé dans le dépôt : c'est ce qui permet d'installer chaque nouvelle version par-dessus la précédente.
+
+## Publier une version
+
+1. Mets à jour `versionCode`/`versionName` dans [`android/build.gradle.kts`](android/build.gradle.kts) et [`RELEASE_NOTES.md`](RELEASE_NOTES.md).
+2. Pousse un tag `vX.Y.Z` sur `main` : le workflow [*Release*](../.github/workflows/release.yml) construit l'APK, l'installateur et la version portable Windows, l'AppImage Linux, puis publie la release avec les notes.

@@ -1,0 +1,16 @@
+name: 💡 Une idée pour Mon Orga
+description: Une fonction qui te manque, une amélioration.
+labels: [idée]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Ton idée
+      placeholder: "Pouvoir partager une liste de courses avec quelqu'un."
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Pourquoi ça t'aiderait ?
+      description: Une situation concrète de ta journée.

@@ -1,0 +1,88 @@
+# A tag like v5.0.0 builds the phone app and the PC apps, then publishes them as a GitHub release.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mon-orga/android
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: ./gradlew testDebugUnitTest assembleDebug --no-daemon
+      - run: mkdir -p ../out && cp build/outputs/apk/debug/MonOrga-debug.apk "../out/Mon-Orga-${GITHUB_REF_NAME#v}.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: mon-orga/out/*.apk
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: mon-orga/pc
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
+        shell: bash
+      - run: npm run dist:win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: mon-orga/pc/dist/*.exe
+
+  linux:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mon-orga/pc
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
+      - run: npm run dist:linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: mon-orga/pc/dist/*.AppImage
+
+  publish:
+    needs: [android, windows, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - run: gh release create "$GITHUB_REF_NAME" assets/* --repo "$GITHUB_REPOSITORY" --title "Mon Orga ${GITHUB_REF_NAME#v}" --notes-file mon-orga/RELEASE_NOTES.md
+        env:
+          GH_TOKEN: ${{ github.token }}
