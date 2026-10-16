@@ -4,7 +4,7 @@ Petite app Android d'organisation, en Kotlin, avec Material Design 3 (thème cla
 
 - **✅ Tâches** : tape un truc à faire (« ranger le linge ») puis « + ». Touche une tâche pour la cocher : elle descend en bas de la liste. Reste appuyé pour la modifier, la supprimer ou la **programmer** : « 📅 Programmer un rappel » → jour → heure. La tâche affiche sa date (en rouge si c'est dépassé) et le téléphone sonne à l'heure dite. « Effacer les terminées » vide d'un coup les tâches cochées.
 - **📝 Notes** : « Nouvelle note » pour écrire (plusieurs lignes possibles). Touche pour ouvrir/modifier, reste appuyé pour supprimer. Le bouton retour enregistre, seul « Annuler » jette le texte.
-- **📅 Agenda** : touche un jour du calendrier, puis « Ajouter » → nom → heure (ou « Journée »). Les tâches programmées ce jour-là s'y affichent aussi (avec un ☐). Touche un élément pour le modifier ou le supprimer. Sous le calendrier, une ligne indique les jours du mois qui ont quelque chose de prévu, et « À venir » montre les 3 prochains événements.
+- **📅 Agenda** : touche un jour du calendrier, puis « Ajouter » → nom → heure (ou « Journée »). Les tâches programmées ce jour-là s'y affichent aussi (avec un 🔔). Touche un élément pour le modifier ou le supprimer. Sous le calendrier, une ligne indique les jours du mois qui ont quelque chose de prévu, et « À venir » montre les 3 prochains événements ou tâches programmées.
 
 Tout est sauvegardé sur le téléphone, même après fermeture de l'app. Les tâches des versions précédentes sont conservées.
 

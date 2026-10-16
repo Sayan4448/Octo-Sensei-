@@ -17,7 +17,7 @@ object Reminders {
     private const val CHANNEL = "rappels"
 
     // One alarm at a time, for the earliest open task still in the future; re-armed after every save,
-    // every ring and every reboot, so no per-task bookkeeping is needed.
+    // every ring, every launch and every reboot, so no per-task bookkeeping is needed.
     fun schedule(ctx: Context, tasks: List<Task>, after: LocalDateTime = LocalDateTime.now()) {
         val am = ctx.getSystemService(AlarmManager::class.java)
         val due = nextDue(tasks, after)
@@ -54,8 +54,10 @@ class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
         val tasks = decodeTasks(ctx.getSharedPreferences("todo", Context.MODE_PRIVATE).getString("tasks", "")!!)
         val due = intent.getStringExtra(Reminders.EXTRA_DUE)?.let(LocalDateTime::parse)
-        if (due != null) tasks.filter { !it.done && it.due == due }.forEach { Reminders.notify(ctx, it) }
         val now = LocalDateTime.now()
-        Reminders.schedule(ctx, tasks, maxOf(due ?: now, now)) // never re-arm a due that just rang
+        val after = maxOf(due ?: now, now)
+        // A late alarm (Doze on Android 8-11, inexact fallback on 12) must also ring what fell due meanwhile.
+        if (due != null) tasks.filter { !it.done && it.due != null && it.due in due..after }.forEach { Reminders.notify(ctx, it) }
+        Reminders.schedule(ctx, tasks, after) // never re-arm a due that just rang
     }
 }

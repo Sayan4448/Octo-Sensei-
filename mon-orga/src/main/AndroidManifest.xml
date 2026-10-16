@@ -23,12 +23,13 @@
             </intent-filter>
         </activity>
 
-        <!-- Rings the reminders; also re-arms the alarm after a reboot (alarms do not survive one). -->
+        <!-- Rings the reminders; also re-arms the alarm after a reboot (alarms do not survive one) or a time-zone change. -->
         <receiver
             android:name=".ReminderReceiver"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
             </intent-filter>
         </receiver>
     </application>

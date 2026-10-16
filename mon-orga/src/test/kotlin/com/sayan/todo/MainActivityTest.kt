@@ -13,12 +13,14 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import androidx.appcompat.app.AlertDialog
+import androidx.fragment.app.DialogFragment
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.timepicker.MaterialTimePicker
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -62,6 +64,18 @@ class MainActivityTest {
         activity.click(R.id.clearDone)
         clickDialog(AlertDialog.BUTTON_POSITIVE)
         row(activity, R.id.tasksList, 0).performClick()
+        idle()
+        // Schedule "Sortir les poubelles" through the real pickers: today (the picker's default) at 09:00 (the dialog's default).
+        row(activity, R.id.tasksList, 0).performLongClick()
+        idle()
+        val edit = ShadowDialog.getLatestDialog() as AlertDialog
+        edit.findViewById<View>(R.id.dialogDue)!!.performClick()
+        idle()
+        (activity.supportFragmentManager.findFragmentByTag("date") as DialogFragment).requireView().findViewById<View>(M.id.confirm_button).performClick()
+        idle()
+        timePickerButton(activity, M.id.material_timepicker_ok_button).performClick()
+        idle()
+        edit.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
         idle()
 
         // Notes: new, edit, and Back saves instead of discarding.
@@ -119,9 +133,11 @@ class MainActivityTest {
         clickDialog(AlertDialog.BUTTON_POSITIVE)
 
         activity = launch()
-        assertEquals(listOf(Task("Sortir les poubelles"), Task("Ranger le linge", done = true)), items(activity, R.id.tasksList))
+        val poubelles = Task("Sortir les poubelles", due = LocalDate.now().atTime(9, 0))
+        assertEquals(listOf(poubelles, Task("Ranger le linge", done = true)), items(activity, R.id.tasksList))
         assertEquals(listOf("Code Wi-Fi : 1234", "Courses :\n- lait\n- pain"), items(activity, R.id.notesList))
-        val events = items(activity, R.id.eventsList).map { it as Event }
+        assertTrue(items(activity, R.id.eventsList).contains(poubelles)) // scheduled today, so it sits in today's agenda
+        val events = items(activity, R.id.eventsList).filterIsInstance<Event>()
         assertEquals(listOf("Anniv de mamie 🎂🎉", "Dentiste"), events.map { it.text })
         assertEquals(listOf(LocalDate.now(), LocalDate.now()), events.map { it.day })
         assertEquals(null, events[0].time)
@@ -169,6 +185,14 @@ class MainActivityTest {
         assertEquals(1, shadowOf(ctx.getSystemService(NotificationManager::class.java)).size())
         assertEquals(millis(due), alarms.peekNextScheduledAlarm()!!.triggerAtTime)
 
+        // Late alarm (Doze): everything due between the alarm's time and now rings, then the next one is armed.
+        val late = LocalDateTime.now().minusMinutes(10).withSecond(0).withNano(0)
+        prefs().putString("tasks", encodeTasks(listOf(Task("Poubelles", due = late), Task("Mamie", due = late.plusMinutes(5)), Task("Plus tard", due = due)))).commit()
+        ReminderReceiver().onReceive(ctx, Intent().putExtra(Reminders.EXTRA_DUE, late.toString()))
+        val titles = shadowOf(ctx.getSystemService(NotificationManager::class.java)).allNotifications.map { it.extras.getString(Notification.EXTRA_TITLE) }
+        assertEquals(setOf("Sortir les poubelles", "Poubelles", "Mamie"), titles.toSet())
+        assertEquals(millis(due), alarms.peekNextScheduledAlarm()!!.triggerAtTime)
+
         Reminders.schedule(ctx, tasks.map { it.copy(done = true) })
         assertNull(alarms.peekNextScheduledAlarm())
     }
@@ -203,6 +227,7 @@ class MainActivityTest {
         activity.tab(R.id.tab_notes)
         screenshot(activity.window.decorView, "$theme-2-notes")
         activity.tab(R.id.tab_agenda)
+        assertEquals("Préparer la réunion de lundi", (items(activity, R.id.upcomingList).first() as Task).text) // tomorrow's task comes before Foot
         screenshot(activity.window.decorView, "$theme-3-agenda")
         activity.click(R.id.addEvent)
         fillDialog("Foot ⚽")

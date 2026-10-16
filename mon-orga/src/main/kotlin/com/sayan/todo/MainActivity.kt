@@ -1,10 +1,13 @@
 package com.sayan.todo
 
 import android.Manifest
+import android.app.NotificationManager
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.Paint
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
@@ -52,7 +55,7 @@ class MainActivity : AppCompatActivity() {
     private val tabViews = listOf(R.id.tasksTab, R.id.notesTab, R.id.agendaTab)
     private val tabItems = listOf(R.id.tab_tasks, R.id.tab_notes, R.id.tab_agenda)
     private val nav by lazy { findViewById<BottomNavigationView>(R.id.nav) }
-    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> if (!ok) warnNoNotifications() }
 
     private val dayFmt = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.FRENCH)
     private val shortFmt = DateTimeFormatter.ofPattern("EEE d MMM", Locale.FRENCH)
@@ -71,6 +74,7 @@ class MainActivity : AppCompatActivity() {
         tasks += decodeTasks(prefs.getString("tasks", "")!!)
         notes += decodeNotes(prefs.getString("notes", "")!!)
         events += decodeEvents(prefs.getString("events", "")!!)
+        Reminders.schedule(this, tasks) // a force-stopped app loses its alarms (and misses BOOT_COMPLETED): re-arm on every launch
         savedInstanceState?.getString("day")?.let { day = LocalDate.parse(it) }
 
         // Edge-to-edge: pad for the status bar; while the keyboard is up, hide the tabs and sit above it.
@@ -88,8 +92,8 @@ class MainActivity : AppCompatActivity() {
         input.setOnEditorActionListener { _, _, _ -> if (input.text.isBlank()) false else { addTask(input); true } }
         findViewById<View>(R.id.clearDone).setOnClickListener {
             val done = tasks.count { it.done }
-            val s = if (done > 1) "s" else ""
-            confirmDelete("Effacer les tâches terminées ?", "$done tâche$s cochée$s vont disparaître.") { tasks.removeAll { it.done } }
+            val (s, v) = if (done > 1) "s" to "vont" else "" to "va"
+            confirmDelete("Effacer les tâches terminées ?", "$done tâche$s cochée$s $v disparaître.") { tasks.removeAll { it.done } }
         }
         findViewById<View>(R.id.addNote).setOnClickListener { editNote(-1) }
         findViewById<View>(R.id.addEvent).setOnClickListener { editEvent(null) }
@@ -165,8 +169,8 @@ class MainActivity : AppCompatActivity() {
                 val due = task.due
                 visibility = if (due == null) View.GONE else View.VISIBLE
                 if (due != null) {
-                    text = "📅 " + dueLabel(due)
                     val late = !task.done && due.isBefore(LocalDateTime.now())
+                    text = (if (late) "⏰ En retard · " else "📅 ") + dueLabel(due)
                     setTextColor(MaterialColors.getColor(this, if (late) androidx.appcompat.R.attr.colorError else androidx.appcompat.R.attr.colorPrimary))
                 }
             }
@@ -205,6 +209,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderAgenda() {
+        val now = LocalDateTime.now()
         val open = tasks.filter { !it.done && it.due != null }
         val month = (events.map { it.day } + open.map { it.due!!.toLocalDate() })
             .filter { it.year == day.year && it.month == day.month }.map { it.dayOfMonth }.distinct().sorted()
@@ -212,36 +217,39 @@ class MainActivity : AppCompatActivity() {
         if (month.isNotEmpty()) findViewById<TextView>(R.id.monthSummary).text =
             "📌 En ${monthFmt.format(day)} : " + frenchList(month.map { if (it == 1) "le 1er" else "le $it" })
         findViewById<TextView>(R.id.dayLabel).text = if (day == today) "Aujourd'hui" else dayFmt.format(day).replaceFirstChar { it.uppercase() }
-        // The day's events and scheduled tasks together, all-day events first, then by time.
-        val onDay: List<Any> = (eventsOn(events, day).map { (it.time ?: LocalTime.MIN) to it } +
-            open.filter { it.due!!.toLocalDate() == day }.map { it.due!!.toLocalTime() to it })
-            .sortedBy { it.first }.map { it.second }
-        fill(R.id.eventsList, onDay, R.layout.item_event) { row, item, _ ->
-            val time = row.findViewById<TextView>(R.id.time)
+        // Agenda rows: events and scheduled tasks (🔔) share one card; the pill shows a time or a date.
+        fun bind(row: View, item: Any, pill: String, prefix: String) {
+            row.findViewById<TextView>(R.id.time).text = pill
             val text = row.findViewById<TextView>(R.id.text)
             when (item) {
                 is Event -> {
-                    time.text = item.time?.let(timeFmt::format) ?: "Journée"
-                    text.text = item.text
+                    text.text = prefix + item.text
                     row.setOnClickListener { editEvent(item) }
                     row.setOnLongClickListener { confirmDelete(item.text) { events.remove(item) }; true }
                 }
                 is Task -> {
-                    time.text = timeFmt.format(item.due!!)
-                    text.text = "☐ " + item.text
+                    text.text = prefix + "🔔 " + item.text
                     row.setOnClickListener { editTask(tasks.indexOf(item)) }
                     row.setOnLongClickListener { confirmDelete(item.text) { tasks.remove(item) }; true }
                 }
             }
         }
+        // The day's events and scheduled tasks together, all-day events first, then by time.
+        val onDay: List<Any> = (eventsOn(events, day).map { (it.time ?: LocalTime.MIN) to it } +
+            open.filter { it.due!!.toLocalDate() == day }.map { it.due!!.toLocalTime() to it })
+            .sortedBy { it.first }.map { it.second }
+        fill(R.id.eventsList, onDay, R.layout.item_event) { row, item, _ ->
+            bind(row, item, if (item is Event) item.time?.let(timeFmt::format) ?: "Journée" else timeFmt.format((item as Task).due!!), "")
+        }
         show(R.id.eventsHint, onDay.isNotEmpty())
-        val next = upcoming(events, LocalDateTime.now()).filter { it.day != day }.take(3)
+        // The next three things ahead on other days (overdue tasks stay out: they are already red on the Tâches tab).
+        val next: List<Any> = (upcoming(events, now).map { it.day.atTime(it.time ?: LocalTime.MIN) to it } +
+            open.filter { it.due!! >= now }.map { it.due!! to it })
+            .filter { it.first.toLocalDate() != day }.sortedBy { it.first }.map { it.second }.take(3)
         show(R.id.upcomingTitle, next.isNotEmpty())
-        fill(R.id.upcomingList, next, R.layout.item_event) { row, event, _ ->
-            row.findViewById<TextView>(R.id.time).text = shortFmt.format(event.day)
-            row.findViewById<TextView>(R.id.text).text = (event.time?.let { timeFmt.format(it) + " · " } ?: "") + event.text
-            row.setOnClickListener { editEvent(event) }
-            row.setOnLongClickListener { confirmDelete(event.text) { events.remove(event) }; true }
+        fill(R.id.upcomingList, next, R.layout.item_event) { row, item, _ ->
+            val (date, time) = if (item is Event) item.day to item.time else (item as Task).due!!.let { it.toLocalDate() to it.toLocalTime() }
+            bind(row, item, shortFmt.format(date), time?.let { timeFmt.format(it) + " · " } ?: "")
         }
     }
 
@@ -308,7 +316,10 @@ class MainActivity : AppCompatActivity() {
                 if (text.isEmpty()) return@setPositiveButton toast("Une tâche vide ? Même moi je peux la faire 😏")
                 tasks[i] = task.copy(text = text, due = due)
                 save()
-                if (due != null && Build.VERSION.SDK_INT >= 33) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                val d = due ?: return@setPositiveButton
+                if (d.isBefore(LocalDateTime.now())) toast("Cette heure est déjà passée : pas de sonnerie ⏰")
+                if (Build.VERSION.SDK_INT >= 33) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                else if (!getSystemService(NotificationManager::class.java).areNotificationsEnabled()) warnNoNotifications()
             }
             .setNeutralButton("Supprimer") { _, _ -> confirmDelete(task.text) { tasks.removeAt(i) } }
             .setNegativeButton("Annuler", null)
@@ -409,6 +420,13 @@ class MainActivity : AppCompatActivity() {
             .putString("events", encodeEvents(events))
             .apply()
         Reminders.schedule(this, tasks)
+    }
+
+    private fun warnNoNotifications() {
+        Snackbar.make(findViewById(R.id.tabs), "Sans notifications, pas de sonnerie 🔕", Snackbar.LENGTH_LONG)
+            .setAction("Réglages") { startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName)) }
+            .apply { if (nav.visibility == View.VISIBLE) anchorView = nav }
+            .show()
     }
 
     private fun toast(msg: String) {

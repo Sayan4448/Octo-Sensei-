@@ -18,7 +18,11 @@ android {
     // Committed key: every build, from any machine, can update the installed app without uninstalling it (which wipes the data).
     signingConfigs { getByName("debug") { storeFile = file("debug.keystore") } }
 
-    testOptions { unitTests.isIncludeAndroidResources = true }
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        // West of Greenwich, so a UTC/local mix-up in the date picker would land on the wrong day and fail the tests.
+        unitTests.all { it.systemProperty("user.timezone", "America/Los_Angeles") }
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
