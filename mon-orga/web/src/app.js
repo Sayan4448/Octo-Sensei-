@@ -18,7 +18,7 @@
     loudAll: false, dayStart: 0, eventLength: 60, recentTimes: [], morning: '09:00', evening: '19:00', quietFrom: '', quietTo: '',
     colors: 'app', phoneCalendar: false, backupLast: 0, backupAsked: 0, news: 0, googleBackup: true, archivedLists: [],
   }
-  const NEWS = 51 // bump with each "what's new" list
+  const NEWS = 52 // bump with each "what's new" list
   let doc = S.empty()
   let set = Object.assign({}, DEFAULTS)
   const ui = {
@@ -331,7 +331,7 @@
     const out = text.replace(/(^|\s)#([^\s#]{2,})/g, (m, sp, name) => { const l = !list && ls.find(x => S.fold(x) === S.fold(name)); if (!l) return m; list = l; return sp }).replace(/\s+/g, ' ').trim()
     return list && out ? { text: out, list: list } : { text: text, list: '' }
   }
-  const APPOINTMENT = /(^|[^A-Za-zÀ-ÿ])(rdv|rendez[- ]vous|dentiste|m[ée]decin|docteur|kin[ée]|ost[ée]o|coiffeur|r[ée]union|v[ée]t[ée]rinaire|meeting|appointment|dentist|doctor|vet)(?![A-Za-zÀ-ÿ])/i
+  const APPOINTMENT = /(^|[^A-Za-zÀ-ÿ])(rdv|rendez[- ]vous|dentiste|m[ée]decin|docteur|kin[ée]|ost[ée]o|coiffeur|r[ée]union|v[ée]t[ée]rinaire|chantier|intervention|d[ée]pannage|visite|consultation|meeting|appointment|dentist|doctor|vet)(?![A-Za-zÀ-ÿ])/i
   function addTasks(raw) {
     const lines = raw.split(/\n+/).map(s => s.trim()).filter(Boolean)
     if (!lines.length) return
@@ -341,7 +341,7 @@
       const named = withList(p.text)
       const dues = ui.draft.due && ui.draft.due.length > 10 ? [ui.draft.due] : p.dues ? p.dues.map(d => pickDue(ui.draft.due, d)) : [pickDue(ui.draft.due, p.due)]
       dues.forEach(due => {
-        const t = newTask({ text: named.text, repeat: ui.draft.repeat || p.repeat, important: ui.draft.important || !!p.important, place: p.place || '',
+        const t = newTask({ text: named.text, repeat: ui.draft.repeat || p.repeat, important: ui.draft.important || !!p.important, prio: p.prio || 0, place: p.place || '',
           list: named.list || (ui.filter && ui.filter.indexOf('list:') === 0 ? ui.filter.slice(5) : '') })
         setDue(t, due)
         if (p.remind && t.due) t.remind = p.remind.slice()
@@ -739,7 +739,7 @@
     const due = pickDue(ui.draft.due, p.due); const repeat = ui.draft.repeat || p.repeat
     const chips = []
     if (due || repeat) {
-      chips.push(`<span class="found">${due ? icon('clock') + esc(fmtDue({ due: due }, true)) : ''}${repeat ? ' ' + icon('repeat') + esc(repeatLabel(repeat)) : ''}
+      chips.push(`<span class="found">${due ? icon('clock') + esc(fmtDue({ due: due }, true)) : ''}${repeat ? ' ' + icon('repeat') + esc(repeatLabel(repeat)) : ''}${p.place ? ' ' + icon('place') + esc(p.place) : ''}
         ${p.due || p.repeat ? `<button type="button" class="icon-btn tiny" data-act="add-raw" aria-label="${esc(T('ignoreDate'))}" title="${esc(T('ignoreDate'))}">${icon('close')}</button>` : ''}</span>`)
     }
     const pre = ['today'].concat(presets()).map(v => `<button type="button" class="chip ${ui.draft.due === dueFromPreset(v) && ui.draft.due ? 'on' : ''}" data-act="add-preset" data-v="${v}">${esc(presetLabel(v))}</button>`)
@@ -1828,7 +1828,8 @@
   }
   async function boot() {
     try { set = Object.assign({}, DEFAULTS, await H.loadSettings()) } catch (e) { /* defaults */ }
-    if (set.welcomed && (set.news || 0) < 51) { // from 5.0: its old defaults become the new ones (said in "what's new")
+    const seen = set.welcomed ? set.news || 0 : -1 // the "what's new" already shown (-1: data from version 4)
+    if (seen >= 0 && seen < 52) { // from 5.0 or 5.1: the old defaults become the new ones (said in "what's new")
       if (String(set.remindEvent) === '15') set.remindEvent = DEFAULTS.remindEvent.slice()
       if (set.nag === 0) set.nag = DEFAULTS.nag
       if (set.summary === null) set.summary = DEFAULTS.summary
@@ -1885,14 +1886,22 @@
     const start = H.startAction && H.startAction()
     if (start) action(start)
     else if (!set.welcomed && !S.live(doc.tasks).length && !S.live(doc.notes).length) welcome()
-    else if (!set.welcomed) { // data from version 4: show what changed instead of the welcome
-      set.welcomed = true; set.news = NEWS; saveSettings()
-      choose(T('whatsNewTitle'), '', [{ label: T('letsGo'), value: 1 }], `<ul class="tips">${T('whatsNew').split('|').concat(T('whatsNew51').split('|')).map(t => `<li>${esc(t)}</li>`).join('')}</ul>`)
-    } else if ((set.news || 0) < NEWS) {
-      set.news = NEWS; saveSettings()
-      choose(T('whatsNewTitle51'), '', [{ label: T('letsGo'), value: 1 }], `<ul class="tips">${T('whatsNew51').split('|').map(t => `<li>${esc(t)}</li>`).join('')}</ul>`)
-    }
+    else if (seen < NEWS) whatsNew(seen)
     if (H.backupInfo) H.backupInfo().then(b => { ui.autoBackup = !!(b && b.folder); if (ui.autoBackup && ui.tab === 'tasks') renderMain() })
+  }
+  // What changed since the version they had; their planned events can take the new reminders too.
+  function whatsNew(seen) {
+    set.welcomed = true; set.news = NEWS; saveSettings()
+    const items = (seen < 0 ? T('whatsNew').split('|') : []).concat(seen < 51 ? T('whatsNew51').split('|') : [], T('whatsNew511').split('|'))
+    const old = S.live(doc.events).filter(e => String(e.remind) === '15' && (e.repeat || e.day >= S.today(now())))
+    const opts = [{ label: T('letsGo'), value: 1 }]
+    if (old.length && String(set.remindEvent) === String(DEFAULTS.remindEvent)) opts.unshift({ label: plural(old.length, 'newRemindOne', 'newRemindMany'), value: 2 })
+    choose(T('whatsNewTitle511'), '', opts, `<ul class="tips">${items.map(t => `<li>${esc(t)}</li>`).join('')}</ul>`).then(v => {
+      if (v !== 2) return
+      const setAll = r => { old.forEach(o => { const e = S.find(doc, o.id); if (e) { e.remind = r.slice(); touch(e) } }); commit() } // by id: a sync may have replaced the objects
+      setAll(set.remindEvent)
+      snack(plural(old.length, 'newRemindDoneOne', 'newRemindDoneMany'), [{ label: T('undo'), run: () => setAll([15]) }], undoMs())
+    })
   }
   window.app = {
     back: () => {

@@ -54,20 +54,25 @@ function open(code, env) { // throws when the code (so the key) is wrong or the 
   d.setAuthTag(all.subarray(all.length - 16))
   return JSON.parse(Buffer.concat([d.update(all.subarray(0, all.length - 16)), d.final()]).toString('utf8'))
 }
-async function exchange(address, code, doc, since) {
+// memo (the saved connection) remembers a phone that answered encrypted: it never goes back to the old way.
+async function exchange(address, code, doc, since, memo) {
   const asked = Date.now(); const pong = await ping(address, 3000).catch(() => null)
   if (!pong) throw Object.assign(new Error('unreachable'), { code: 'unreachable' })
   const skew = pong.now ? pong.now - Math.round((asked + Date.now()) / 2) : 0 // the phone refuses requests 2 min off its clock: use its time
   if (!(pong.v >= 2)) { // a phone still on 5.1.0: the old way, the code in the address
+    if (memo && memo.v2) throw Object.assign(new Error('notEncrypted'), { code: 'notEncrypted' }) // or someone posing as the phone
     return doc ? request(address, '/api/sync?k=' + encodeURIComponent(code), doc, 15000) : request(address, '/api/state?k=' + encodeURIComponent(code))
   }
   const env = await request(address, '/api/v2/sync', seal(code, { ts: Date.now() + skew, nonce: crypto.randomBytes(8).toString('hex'), since: since || 0, doc: doc || null }), 15000)
-  try { return open(code, env).doc } catch (e) { throw Object.assign(new Error('badCode'), { code: 'badCode' }) }
+  let back
+  try { back = open(code, env).doc } catch (e) { throw Object.assign(new Error('badCode'), { code: 'badCode' }) }
+  if (memo) memo.v2 = true
+  return back
 }
 
 const ping = (address, timeout) => request(address, '/api/ping', undefined, timeout || 900).then(r => (r && r.app === 'mon-orga' ? r : null))
 const state = (address, code) => exchange(address, code, null, 0)
-const sync = (address, code, doc, since) => exchange(address, code, doc, since)
+const sync = (address, code, doc, since, memo) => exchange(address, code, doc, since, memo)
 
 // Every machine of the local /24 networks, 48 at a time.
 async function scan(port, interfaces) {

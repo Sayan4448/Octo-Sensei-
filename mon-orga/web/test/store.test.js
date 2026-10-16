@@ -225,6 +225,20 @@ test('priorities: "!" to "!!!" or p3 to p1, most important first within a day', 
   const doc = S.normalize({ tasks: [{ id: 'a', due: '2026-10-16T09:00' }, { id: 'b', due: '2026-10-16T18:00', important: true, prio: 2 }, { id: 'c', due: '2026-10-16T12:00', important: true }] })
   assert.deepEqual(S.sortTasks(doc.tasks, NOW).map(t => t.id), ['b', 'c', 'a'])
   assert.equal(S.normalize({ tasks: [{ prio: 3 }] }).tasks[0].prio, 0) // a priority goes with the star
+  const range = S.parse('Communiquer pièces p1 à p12 avant le 20/10', NOW) // "p1" is a document here
+  assert.deepEqual([range.text, range.prio], ['Communiquer pièces p1 à p12 avant', undefined])
+  assert.equal(S.parse('Appeler le client p1 à 14h', NOW).prio, 3)
+})
+
+test('a phone number is never a date, a time or part of the address', () => {
+  const p = S.parse('Visite jeudi 10h Mme Durand 06.12.34.56.78', NOW)
+  assert.deepEqual([p.text, p.due], ['Visite Mme Durand 06.12.34.56.78', '2026-10-22T10:00'])
+  const q = S.parse('Fuite demain 14h 3 bis avenue Foch 06 12 34 56 78', NOW)
+  assert.deepEqual([q.text, q.place], ['Fuite 06 12 34 56 78', '3 bis avenue Foch'])
+  const r = S.parse('Visite demain 14h30 au 3 avenue Foch, Mme Durand tél : 06 12 34 56 78', NOW)
+  assert.deepEqual([r.text, r.place], ['Visite Mme Durand tél : 06 12 34 56 78', '3 avenue Foch'])
+  assert.equal(S.parse('Livraison jeudi 10h 5 rue Madame, 75006 Paris', NOW).place, '5 rue Madame, 75006 Paris') // a street named Madame
+  assert.equal(S.parse('Appeler +33 6 12 34 56 78 demain', NOW).text, 'Appeler +33 6 12 34 56 78')
 })
 
 test('a street number is never read as minutes, pills without commas', () => {

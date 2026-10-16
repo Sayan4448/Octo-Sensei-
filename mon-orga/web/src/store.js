@@ -373,6 +373,9 @@
     [word('tous les ans|chaque ann[ée]e|every year|yearly|annually'), () => 'yearly'],
   ]
   const STREET = 'rue|avenue|av\\.|bd|boulevard|chemin|place|all[ée]e|impasse|route|quai|cours|street|st\\.|road|rd\\.|ave\\.?|lane|drive'
+  const PHONE = /\+?\d[\d .-]{7,16}\d/g // the same numbers as the "Call" button (app.js findLinks)
+  const isPhone = m => { const d = m.replace(/\D/g, '').length; return d >= 9 && d <= 15 && !/^\d{4}-\d{2}-\d{2}/.test(m) }
+  const PLACE_END = new RegExp('(?:(?:,?\\s+|,)(?:t[ée]l(?:[ée]phone)?|phone|portable|mobile)\\.?\\s*:?)?\\s*\uE000|,\\s*(?:m\\.|mme|mlle|mr|mrs|ms|madame|monsieur|dr|docteur)(?![' + L + '])', 'i')
   const ADDRESS = new RegExp('\\s\\d{1,4}(?:\\s?(?:bis|ter))?,?\\s+(?:' + STREET + ')(?![' + L + '])', 'i')
   const PART_OF_DAY = { matin: '09:00', morning: '09:00', midi: '12:00', 'apres-midi': '14:00', 'apres midi': '14:00', afternoon: '14:00', soir: '19:00', evening: '19:00', night: '21:00' }
   const FILLER = /^\s*(?:rappelle[- ]moi\s+(?:de\s+|d['’])?|remind me to\s+|n['’]oublie pas\s+(?:de\s+|d['’])?|penser [àa]\s+|don['’]t forget to\s+)/i
@@ -382,7 +385,9 @@
     const now = new Date(nowMs)
     const td = ymd(now)
     const mdy = !!(opts && opts.mdy)
-    let text = input
+    const phones = [] // set aside: a phone number is never read as a date, a time or an address
+    let text = input.replace(PHONE, m => (isPhone(m) ? '\uE000' + String.fromCharCode(0xE001 + phones.push(m) - 1) : m))
+    const back = s => s.replace(/\uE000([\uE001-\uF8FF])/g, (m, c) => phones[c.charCodeAt(0) - 0xE001])
     const cuts = [] // where date/repeat words were, to accept a bare "18h" right next to them
     // Removes the first match (when `ok` accepts its groups) and returns [phrase, group1, …].
     function take(re, ok) {
@@ -405,7 +410,7 @@
     if (LOUD.test(text)) { loud = true; if (text.replace(LOUD, ' ').replace(/[\s\d:h!]+/gi, '').length > 1) take(LOUD) } // "Réveil 7h" keeps its name
     let prio = 0 // "!", "!!", "!!!" or p3, p2, p1 (p1 is the highest)
     if ((g = /(^|\s)(!{1,3})(?=\s|$)/.exec(text))) { prio = g[2].length; text = text.slice(0, g.index) + g[1] + text.slice(g.index + g[0].length) }
-    else if ((g = /(^|\s)[pP]([123])(?=\s|$)/.exec(text))) { prio = 4 - +g[2]; text = text.slice(0, g.index) + g[1] + text.slice(g.index + g[0].length) }
+    else if ((g = /(^|\s)[pP]([123])(?=\s|$)(?!\s+(?:à|a|au|to|-|–)\s+[pP]\d)/.exec(text))) { prio = 4 - +g[2]; text = text.slice(0, g.index) + g[1] + text.slice(g.index + g[0].length) } // not "pièces p1 à p12"
     if (prio) important = true
     for (let i = 0; i < REPEATS.length && !repeat; i++) {
       if ((g = take(REPEATS[i][0]))) {
@@ -515,16 +520,20 @@
     }
     const due = dueAt(time)
     const extra = o => { if (remind) o.remind = remind; if (loud) o.loud = true; if (important) { o.important = true; o.prio = prio } if (end && due && due.length > 10) o.end = end; return o }
-    if (!due && !repeat) return extra({ text: (loud || important || remind ? text.replace(/\s+/g, ' ').trim() : '') || input.trim(), due: null, repeat: null })
+    if (!due && !repeat) return extra({ text: (loud || important || remind ? back(text).replace(/\s+/g, ' ').trim() : '') || input.trim(), due: null, repeat: null })
     let rest = text.replace(FILLER, '').replace(/\s+/g, ' ').trim()
     for (let i = 0; i < 3; i++) rest = rest.replace(/[\s,;:.-]+$/, '').replace(/\s+(?:[àa]|at|le|on|pour|vers|de|du|for|by|et|and|à partir de)$/i, '').trim()
     rest = rest.replace(/^[\s,;:.-]+/, '')
     rest = rest.charAt(0).toUpperCase() + rest.slice(1)
     const addr = ADDRESS.exec(rest) // "Chantier 12 rue des Lilas": the address becomes the place
     let place = ''
-    if (addr && addr.index > 0) { place = rest.slice(addr.index).trim(); rest = rest.slice(0, addr.index).replace(/[\s,;:-]+$/, '').replace(/\s+(?:au|à|a|at|chez)$/i, '').trim() }
-    const out = extra({ text: rest || input.trim(), due: due, repeat: repeat })
-    if (place) out.place = place
+    if (addr && addr.index > 0) {
+      place = rest.slice(addr.index).trim(); rest = rest.slice(0, addr.index).replace(/[\s,;:-]+$/, '').replace(/\s+(?:au|à|a|at|chez)$/i, '').trim()
+      const who = PLACE_END.exec(place) // "3 avenue Foch, Mme Durand 06…": the name and the number stay in the title
+      if (who) { rest = (rest + ' ' + place.slice(who.index).replace(/^[\s,]+/, '')).trim(); place = place.slice(0, who.index).replace(/[\s,;:-]+$/, '') }
+    }
+    const out = extra({ text: back(rest) || input.trim(), due: due, repeat: repeat })
+    if (place) out.place = back(place)
     if (times && times.length > 1 && exact === null) out.dues = times.map(dueAt)
     return out
   }

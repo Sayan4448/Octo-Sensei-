@@ -238,7 +238,7 @@ test('the 5.1 tools: long press, imports, repeats, backups', { skip: !playwright
   }
 })
 
-test('5.1.1: settings from 5.0, call and directions, archived lists, conflicts, progress picture', { skip: !playwright && 'playwright is not installed' }, async t => {
+test('5.1.1: settings from 5.0 and 5.1, call and directions, priorities typed, archived lists, conflicts, progress picture', { skip: !playwright && 'playwright is not installed' }, async t => {
   const server = await serve(0)
   const url = 'http://127.0.0.1:' + server.address().port + '/index.html'
   const browser = await playwright.chromium.launch()
@@ -249,11 +249,11 @@ test('5.1.1: settings from 5.0, call and directions, archived lists, conflicts, 
     sessionStorage.setItem('seeded', '1')
     localStorage.setItem('mon-orga-doc', JSON.stringify({
       tasks: [{ id: 'g', text: 'Rappeler le garage 06 12 34 56 78', due: '2026-10-16T14:00', place: '3 rue des Lilas', list: 'Voiture' }, { id: 'h', text: 'Ancien projet', list: 'Projet X' }],
-      events: [{ id: 'd', text: 'Dentiste 04 72 00 00 00', day: '2026-10-16', time: '16:30', remind: [60] }],
+      events: [{ id: 'd', text: 'Dentiste 04 72 00 00 00', day: '2026-10-16', time: '16:30', remind: [60] }, { id: 'o', text: 'Ophtalmo', day: '2026-11-03', time: '10:00', remind: [15] }],
       notes: [{ id: 'n', text: 'Courses', updatedAt: t0 }, { id: 'n-c1', text: 'Courses (autre)', conflictOf: 'n', updatedAt: t0 - 1 }],
       history: [(t0 - 86400000) + ':g'],
     }))
-    localStorage.setItem('mon-orga-settings', JSON.stringify({ welcomed: true, remindEvent: [15], nag: 0, summary: null, snooze: 10 })) // as 5.0 saved them
+    localStorage.setItem('mon-orga-settings', JSON.stringify({ welcomed: true, news: 51, remindEvent: [15], nag: 0, summary: null, snooze: 10 })) // 5.0 then 5.1: the old values, news seen
   }, t0)
   const page = await ctx.newPage()
   page.setDefaultTimeout(5000)
@@ -263,11 +263,15 @@ test('5.1.1: settings from 5.0, call and directions, archived lists, conflicts, 
   await page.clock.setFixedTime(NOW)
   try {
     await page.goto(url); await page.waitForSelector('#addInput')
-    await t.test('coming from 5.0: the new defaults, said once', async () => {
-      assert.match(await page.textContent('.dlg'), /Nouveaux réglages par défaut/)
-      await page.click('.dlg-actions button')
+    await t.test('coming from 5.0 through 5.1: the new defaults, said once, planned events too if asked', async () => {
+      const text = await page.textContent('.dlg')
+      assert.match(text, /5\.1\.1[\s\S]*Nouveaux réglages par défaut/)
+      assert.doesNotMatch(text, /tous les 3 mois/) // the 5.1 list was already seen
+      await page.click('.dlg-actions button:has-text("Appliquer aussi au rendez-vous déjà prévu")')
       const s = await page.evaluate(() => JSON.parse(localStorage.getItem('mon-orga-settings')))
-      assert.deepEqual([s.remindEvent, s.nag, s.summary, s.news], [[60, 1440], 10, '08:00', 51])
+      assert.deepEqual([s.remindEvent, s.nag, s.summary, s.news], [[60, 1440], 10, '08:00', 52])
+      const remind = id => page.evaluate(id => JSON.parse(localStorage.getItem('mon-orga-doc')).events.find(e => e.id === id).remind, id)
+      assert.deepEqual([await remind('o'), await remind('d')], [[60, 1440], [60]]) // only the old default changes
     })
     await t.test('a number and a place: call and directions on the rows', async () => {
       assert.ok(await page.$('.row.task[data-id="g"] .call[data-href="tel:0612345678"]'))
@@ -281,6 +285,17 @@ test('5.1.1: settings from 5.0, call and directions, archived lists, conflicts, 
       await page.click('[data-act="prio"][data-v="3"]')
       await page.click('[data-act="close"]')
       assert.match(await page.textContent('.row.task[data-id="h"]'), /!!!/)
+    })
+    await t.test('typed: the priority is kept, a number after the address stays in the title', async () => {
+      await page.fill('#addInput', 'Relire la maquette !!! demain')
+      await page.press('#addInput', 'Enter')
+      assert.match(await page.textContent('.row.task:has-text("Relire la maquette")'), /!!!/)
+      await page.fill('#addInput', 'Fuite demain 14h 3 bis avenue Foch 06.12.34.56.78')
+      assert.match(await page.textContent('#addHint'), /3 bis avenue Foch/) // the place found, before saving
+      await page.press('#addInput', 'Enter')
+      const row = '.row.task:has-text("Fuite")'
+      assert.ok(await page.$(row + ' .call[data-href="tel:0612345678"]'))
+      assert.match(await page.getAttribute(row + ' .route', 'data-href'), /query=3%20bis%20avenue%20Foch$/)
     })
     await t.test('an archived list leaves the screen and comes back', async () => {
       await page.click('#nav [data-tab="plus"]')

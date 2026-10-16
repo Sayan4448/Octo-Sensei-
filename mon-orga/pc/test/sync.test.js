@@ -38,6 +38,9 @@ test('sync v2: encrypted with a key from the code, the same bytes as Android', a
     assert.equal((await phone.state(p.address, '123456')).notes.length, 2)
     p.old = true // a phone still on 5.1.0
     assert.equal((await phone.state(p.address, '123456')).notes.length, 2)
+    const memo = {} // the saved connection: once encrypted, never the old way again (someone could pose as the phone)
+    p.old = false; await phone.sync(p.address, '123456', null, 0, memo)
+    p.old = true; await assert.rejects(phone.sync(p.address, '123456', null, 0, memo), e => e.code === 'notEncrypted')
   } finally { p.server.close() }
 })
 
