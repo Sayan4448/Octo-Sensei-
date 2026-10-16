@@ -55,6 +55,18 @@
             android:textSize="22sp" />
 
         <Button
+            android:id="@+id/alarm_hour"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:background="@drawable/alarm_button_outline"
+            android:minHeight="72dp"
+            android:textAllCaps="false"
+            android:textColor="@color/alarm_text"
+            android:textSize="22sp" />
+
+        <Button
             android:id="@+id/alarm_later"
             style="?android:attr/borderlessButtonStyle"
             android:layout_width="match_parent"

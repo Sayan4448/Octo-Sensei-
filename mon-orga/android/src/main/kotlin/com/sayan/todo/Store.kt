@@ -1,9 +1,14 @@
 package com.sayan.todo
 
+import android.app.backup.BackupAgent
+import android.app.backup.BackupDataInput
+import android.app.backup.BackupDataOutput
+import android.app.backup.FullBackupDataOutput
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import org.json.JSONArray
 import org.json.JSONException
@@ -54,8 +59,8 @@ fun saveDoc(prefs: SharedPreferences, doc: JSONObject, now: Long = System.curren
 }
 
 // Merges another copy (the interface, the PC, a backup) into what is stored, stores and returns the result (null: not stored).
-fun syncDoc(prefs: SharedPreferences, incoming: JSONObject): JSONObject? = synchronized(lock) {
-    merge(loadDoc(prefs), incoming).takeIf { saveDoc(prefs, it) }
+fun syncDoc(prefs: SharedPreferences, incoming: JSONObject, since: Long = 0): JSONObject? = synchronized(lock) {
+    merge(loadDoc(prefs), incoming, since).takeIf { saveDoc(prefs, it) }
 }
 
 // Changes one item in place and stores the document. Returns false when there is no such item or it could not be stored.
@@ -79,7 +84,8 @@ fun items(doc: JSONObject, kind: String): List<JSONObject> {
     return (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
 }
 
-fun merge(local: JSONObject, remote: JSONObject): JSONObject {
+// `since`: when these two copies last synced (0: unknown), for the conflict copies of rule R5.
+fun merge(local: JSONObject, remote: JSONObject, since: Long = 0): JSONObject {
     val out = JSONObject(local.toString())
     for (k in KINDS) {
         val byId = LinkedHashMap<String, JSONObject>()
@@ -88,12 +94,29 @@ fun merge(local: JSONObject, remote: JSONObject): JSONObject {
             val current = byId[id]
             if (current == null || item.optLong("updatedAt") > current.optLong("updatedAt")) byId[id] = item
         }
-        out.put(k, JSONArray(byId.values.toList()))
+        val copies = if (k == "notes" && since > 0) conflictCopies(local, remote, byId, since) else emptyMap()
+        out.put(k, JSONArray(byId.values.flatMap { listOfNotNull(it, copies[it.optString("id")]) }))
     }
     val history = LinkedHashMap<String, Any>()
     for (doc in listOf(local, remote)) doc.optJSONArray("history")?.let { a -> for (i in 0 until a.length()) a.opt(i)?.let { history[it.toString()] = it } }
     out.put("history", JSONArray(history.values.sortedBy { historyTime(it) }.takeLast(HISTORY_MAX)))
     return out.put("app", "mon-orga").put("version", 2)
+}
+
+// R5 (same as store.js): a note whose text changed on both sides since the last sync keeps the losing text as a note of
+// its own, "<id>-c<its updatedAt>", placed right after the winner (by original id), unless that id already exists.
+private fun conflictCopies(local: JSONObject, remote: JSONObject, merged: Map<String, JSONObject>, since: Long): Map<String, JSONObject> {
+    val theirs = items(remote, "notes").associateBy { it.optString("id") }
+    val out = HashMap<String, JSONObject>()
+    for (mine in items(local, "notes")) {
+        val id = mine.optString("id"); val other = theirs[id] ?: continue
+        if (mine.optBoolean("deleted") || other.optBoolean("deleted") || mine.optString("text") == other.optString("text")) continue
+        if (mine.optLong("updatedAt") <= since || other.optLong("updatedAt") <= since) continue
+        val loser = if (merged[id] === mine) other else mine
+        val at = loser.optLong("updatedAt"); val copy = "$id-c$at"
+        if (copy !in merged) out[id] = JSONObject(loser.toString()).put("id", copy).put("conflictOf", id).put("pinned", false).put("createdAt", at).put("updatedAt", at)
+    }
+    return out
 }
 
 // History entries: a completion time (v4), or "time:taskId" (v5, so ticking twice the same day counts once),
@@ -370,6 +393,8 @@ class Settings(private val json: JSONObject) {
     val lock: Boolean get() = json.optBoolean("lock")
     val sober: Boolean get() = json.optBoolean("sober") // neutral texts: no emoji, no "tu"
     val loudAll: Boolean get() = json.optBoolean("loudAll")
+    // Android's backup to the Google account: on unless turned off, never with the lock (locked data stays on the phone).
+    val googleBackup: Boolean get() = json.optBoolean("googleBackup", true) && !lock
     val summary: LocalTime? get() = json.str("summary")?.let { runCatching { LocalTime.parse(it) }.getOrNull() }
     val focusUntil: Long? get() = json.optJSONObject("focus")?.optLong("until")?.takeIf { it > 0 }
     val focusTitle: String get() = json.optJSONObject("focus")?.optString("title").orEmpty()
@@ -476,4 +501,12 @@ object Backup {
     private fun query(ctx: Context, uri: Uri): Map<String, String> = ctx.contentResolver.query(uri,
         arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)
         ?.use { c -> generateSequence { if (c.moveToNext()) c.getString(0) to c.getString(1).orEmpty() else null }.toMap() }.orEmpty()
+}
+
+// Android's Auto Backup goes through this agent: the normal full backup, or nothing at all when Settings.googleBackup is off.
+class GoogleBackupAgent : BackupAgent() {
+    override fun onFullBackup(data: FullBackupDataOutput) { if (settings(prefs()).googleBackup) super.onFullBackup(data) }
+    // Key/value backup: never used (android:fullBackupOnly).
+    override fun onBackup(oldState: ParcelFileDescriptor?, data: BackupDataOutput?, newState: ParcelFileDescriptor?) = Unit
+    override fun onRestore(data: BackupDataInput?, appVersionCode: Int, newState: ParcelFileDescriptor?) = Unit
 }

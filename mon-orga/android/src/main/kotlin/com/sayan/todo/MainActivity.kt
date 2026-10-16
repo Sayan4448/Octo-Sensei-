@@ -370,7 +370,7 @@ class MainActivity : AppCompatActivity() {
             .put("voice", Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).resolveActivity(packageManager) != null)
             .put("a11yTimeout", if (Build.VERSION.SDK_INT >= 29) getSystemService(AccessibilityManager::class.java)
                 .getRecommendedTimeoutMillis(10_000, AccessibilityManager.FLAG_CONTENT_TEXT or AccessibilityManager.FLAG_CONTENT_CONTROLS) else 10_000)
-            .put("calendar", true).put("camera", true)
+            .put("calendar", true).put("camera", true).put("shareImage", true)
             .apply { if (Build.VERSION.SDK_INT >= 31) put("dynamic", dynamicColors()) }
             .toString()
 
@@ -396,6 +396,19 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface fun share(title: String, text: String) = runOnUiThread {
             startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text).putExtra(Intent.EXTRA_SUBJECT, title), null))
+        }
+
+        // A picture made by the page ("data:image/png;base64,…" or jpeg, 8 MB at most), shared as a file. False when unreadable.
+        @JavascriptInterface fun shareImage(dataUrl: String, title: String): Boolean {
+            val b64 = Regex("""^data:image/(png|jpeg);base64,""").find(dataUrl)?.let { dataUrl.substring(it.range.last + 1) } ?: return false
+            val bytes = runCatching { Base64.decode(b64, Base64.DEFAULT) }.getOrNull()?.takeIf { it.isNotEmpty() && it.size <= 8 shl 20 } ?: return false
+            val file = File(cacheDir, "share").apply { mkdirs() }.resolve("progress.png")
+            if (runCatching { file.writeBytes(bytes) }.isFailure) return false
+            val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.files", file)
+            val send = Intent(Intent.ACTION_SEND).setType("image/png").putExtra(Intent.EXTRA_STREAM, uri).putExtra(Intent.EXTRA_SUBJECT, title)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION).apply { clipData = ClipData.newRawUri(title, uri) } // the chooser can show it too
+            runOnUiThread { start(Intent.createChooser(send, title)) }
+            return true
         }
 
         @JavascriptInterface fun copy(text: String): Boolean {
