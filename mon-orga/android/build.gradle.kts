@@ -17,6 +17,8 @@ android {
 
     // Committed key: every build, from any machine, can update the installed app without uninstalling it (which wipes the data).
     signingConfigs { getByName("debug") { storeFile = file("debug.keystore") } }
+    // The published APK: same key (so it installs over earlier versions), but not debuggable.
+    buildTypes { getByName("release") { signingConfig = signingConfigs.getByName("debug"); isMinifyEnabled = false } }
 
     testOptions {
         unitTests.isIncludeAndroidResources = true

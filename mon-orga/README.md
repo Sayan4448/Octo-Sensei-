@@ -38,7 +38,7 @@ mon-orga/
 | Interface : tests | `cd web && npm ci && npx playwright install chromium && TZ=Europe/Paris npm test` |
 | Interface : l'essayer dans un navigateur | `cd web && node test/serve.js` puis http://127.0.0.1:8123 |
 | Interface : refaire les captures | `cd web && npm run screenshots` |
-| Android : tests et APK | `cd android && ./gradlew testDebugUnitTest assembleDebug` (JDK 21, `ANDROID_HOME`) → `build/outputs/apk/debug/MonOrga-debug.apk` |
+| Android : tests et APK | `cd android && ./gradlew testDebugUnitTest assembleDebug` (JDK 21, `ANDROID_HOME`) → `build/outputs/apk/debug/MonOrga-debug.apk` ; l'APK publié vient de `assembleRelease` |
 | PC : tests | `cd pc && npm ci && npm test` (sous Linux sans écran : `xvfb-run -a npm test`) |
 | PC : lancer | `cd pc && npm start` |
 | PC : fabriquer l'installateur Windows | `cd pc && npm run dist:win` → `dist/` |
