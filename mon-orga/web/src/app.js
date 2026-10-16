@@ -75,7 +75,7 @@
       return T('everyDays', names.join(', '))
     }
     if (k === 'nth') { const p = r.split(':'); return T('rep_nth', T('ord_' + p[1]), fmt({ weekday: 'long' }, new Date(2024, 0, +p[2]))) }
-    return T('rep_' + k, n)
+    return T('rep_' + k, n) + (/:after$/.test(r) ? ' ' + T('afterTick') : '')
   }
   function remindLabel(m, allDay) {
     if (allDay) {
@@ -270,6 +270,17 @@
       if (after.count > was.count) msg += ' · ' + T('xpGain', 10)
     }
     snack(msg, [{ label: T('undo'), run: () => { doc.history.push(now() + ':' + id + ':x'); put(Object.assign(S.find(doc, id), before)) } }])
+  }
+  // A long press on a task: "in 1 h", "tonight", "tomorrow morning", +2 days… without opening it.
+  async function quickMenu(id) {
+    const t = S.find(doc, id); if (!t || t.done || kindOf(id) !== 'tasks') return
+    const pre = ['in1h', 'in3h', 'tonight', 'tomorrow'].filter(v => v !== 'tonight' || S.ms(S.today(now()) + 'T' + set.evening) > now())
+    const v = await choose(T('moveTo'), t.text, pre.map(x => ({ label: presetLabel(x), value: x, menu: true, icon: 'clock' }))
+      .concat([{ label: T('postpone2'), value: 'p2', menu: true, icon: 'forward' }, { label: T('postpone7'), value: 'p7', menu: true, icon: 'forward' }, { label: T('cancel'), value: null }]))
+    if (!v) return
+    if (v === 'p2' || v === 'p7') return postponeTask(id, v === 'p2' ? 2 : 7)
+    const before = clone(t); setDue(t, dueFromPreset(v)); put(t)
+    snack(T('movedTo', fmtDue(t)), [{ label: T('undo'), run: () => put(Object.assign(S.find(doc, id), before)) }])
   }
   function postponeTask(id, days) {
     const t = S.find(doc, id); if (!t) return
@@ -678,9 +689,14 @@
     const notes = S.live(doc.notes).filter(n => S.matches(q, [n.text, n.list])).sort((a, b) => b.updatedAt - a.updatedAt)
     const evs = S.live(doc.events).filter(e => S.matches(q, [e.text, e.place, e.details, e.list])).sort((a, b) => a.day < b.day ? 1 : -1)
     if (!tasks.length && !notes.length && !evs.length) return `<p class="empty">${esc(T('noResult', q))}</p>`
-    return (tasks.length ? `<h2 class="sec">${esc(T('tab_tasks'))} <span class="count">${tasks.length}</span></h2><ul class="list">${tasks.slice(0, 100).map(t => taskRow(t)).join('')}</ul>` : '') +
-      (notes.length ? `<h2 class="sec">${esc(T('tab_notes'))} <span class="count">${notes.length}</span></h2><ul class="grid">${notes.slice(0, 100).map(noteCard).join('')}</ul>` : '') +
-      (evs.length ? `<h2 class="sec">${esc(T('tab_agenda'))} <span class="count">${evs.length}</span></h2><ul class="list">${evs.slice(0, 100).map(e => eventRow(e, S.nextDay(e.day, e.repeat, S.today(now()), e.until, e.skip) || e.day)).join('')}</ul>` : '') + '<div class="spacer"></div>'
+    const more = n => n > 100 ? `<p class="hint">${esc(T('moreResults', n - 100))}</p>` : ''
+    const parts = {
+      tasks: tasks.length ? `<h2 class="sec">${esc(T('tab_tasks'))} <span class="count">${tasks.length}</span></h2><ul class="list">${tasks.slice(0, 100).map(t => taskRow(t)).join('')}</ul>${more(tasks.length)}` : '',
+      notes: notes.length ? `<h2 class="sec">${esc(T('tab_notes'))} <span class="count">${notes.length}</span></h2><ul class="grid">${notes.slice(0, 100).map(noteCard).join('')}</ul>${more(notes.length)}` : '',
+      agenda: evs.length ? `<h2 class="sec">${esc(T('tab_agenda'))} <span class="count">${evs.length}</span></h2><ul class="list">${evs.slice(0, 100).map(e => eventRow(e, S.nextDay(e.day, e.repeat, S.today(now()), e.until, e.skip) || e.day)).join('')}</ul>${more(evs.length)}` : '',
+    }
+    const order = [ui.tab].concat(['tasks', 'notes', 'agenda'].filter(k => k !== ui.tab)).filter(k => parts[k] !== undefined) // where you search from comes first
+    return order.map(k => parts[k]).join('') + '<div class="spacer"></div>'
   }
 
   // ---------- add bar ----------
@@ -787,6 +803,7 @@
   }
   function repeatParts(r) {
     if (!r) return { kind: '', n: 2, days: [] }
+    if (/:after$/.test(r)) return Object.assign(repeatParts(r.slice(0, -6)), { after: true })
     const k = r.split(':')[0]; const n = +(r.split(':')[1]) || 2
     if (k === 'weekly' && r.indexOf(':') > 0) return { kind: 'pick', n: 2, days: S.repeatDays(r) }
     if (k === 'nth') return { kind: 'nth', n: +r.split(':')[1], days: [+r.split(':')[2]] }
@@ -794,7 +811,11 @@
   }
   // The k-th weekday of the month a day falls on: 2026-10-15 is the 3rd Thursday (or the last one).
   const nthOf = day => { const k = Math.ceil(+day.slice(8) / 7); return { k: k === 5 ? -1 : k, wd: S.weekday(day) } }
-  function repeatCode(kind, n, days) {
+  function repeatCode(kind, n, days, after) {
+    const code = repeatBase(kind, n, days)
+    return code && after && /^(hours|days|weeks):/.test(code) ? code + ':after' : code
+  }
+  function repeatBase(kind, n, days) {
     n = Math.max(1, Math.min(99, +n || 2))
     if (!kind) return null
     if (kind === 'pick') return 'weekly:' + (days.length ? days : [1]).slice().sort().join(',')
@@ -818,6 +839,7 @@
       html += '</div>'
     }
     if (['weeks', 'months', 'ndays', 'hours'].indexOf(p.kind) >= 0) html += `<label class="field inline"><span>${esc(T('every'))}</span><input type="number" min="1" max="99" inputmode="numeric" data-f="repeatN" value="${p.n}"><span>${esc(T('unit_' + p.kind))}</span></label>`
+    if (isTask && ['weeks', 'ndays', 'hours'].indexOf(p.kind) >= 0) html += `<label class="switch-row"><span><span><b>${esc(T('fromTick'))}</b><small>${esc(T('fromTickHint'))}</small></span></span><input type="checkbox" role="switch" data-f="repeatAfter" ${p.after ? 'checked' : ''}></label>`
     if (p.kind === 'nth') {
       html += `<div class="fields"><select data-f="nthK" aria-label="${esc(T('which'))}">${[1, 2, 3, 4, 5, -1].map(k => `<option value="${k}" ${p.n === k ? 'selected' : ''}>${esc(T('ord_' + k))}</option>`).join('')}</select>
         <select data-f="nthD" aria-label="${esc(T('weekday'))}">${[1, 2, 3, 4, 5, 6, 7].map(d => `<option value="${d}" ${p.days[0] === d ? 'selected' : ''}>${esc(fmt({ weekday: 'long' }, new Date(2024, 0, d)))}</option>`).join('')}</select>
@@ -1010,7 +1032,8 @@
         if (!item.repeat) item.until = null
         again = true; later = false; break
       }
-      case 'repeatN': { const p = repeatParts(item.repeat); if (!el.value) return; item.repeat = repeatCode(p.kind, el.value, p.days); break }
+      case 'repeatN': { const p = repeatParts(item.repeat); if (!el.value) return; item.repeat = repeatCode(p.kind, el.value, p.days, p.after); break }
+      case 'repeatAfter': { const p = repeatParts(item.repeat); item.repeat = repeatCode(p.kind, p.n, p.days, el.checked); again = true; break }
       case 'nthK': { const p = repeatParts(item.repeat); item.repeat = repeatCode('nth', +el.value, p.days); alignDue(item); again = true; break }
       case 'nthD': { const p = repeatParts(item.repeat); item.repeat = repeatCode('nth', p.n, [+el.value]); alignDue(item); again = true; break }
       case 'until': if (!change) return; item.until = el.value || null; break
@@ -1307,11 +1330,13 @@
   function choose(title, message, options, html) {
     return new Promise(res => {
       const d = $('#dialog')
-      d.innerHTML = `<div class="scrim" data-act="dlg" data-v=""></div><div class="dlg card" role="alertdialog" aria-modal="true" aria-labelledby="dlgT"><h2 id="dlgT">${esc(title)}</h2>${message ? `<p>${esc(message)}</p>` : ''}${html || ''}
-        <div class="dlg-actions">${options.map((o, i) => `<button class="${o.danger ? 'danger' : i === options.length - 1 ? 'filled' : 'text-btn'}" data-act="dlg" data-v="${i}">${esc(o.label)}</button>`).join('')}</div></div>`
+      const menu = options.map((o, i) => o.menu ? `<button class="menu-item" data-act="dlg" data-v="${i}">${o.icon ? icon(o.icon) : ''}${esc(o.label)}</button>` : '').join('')
+      const buttons = options.filter(o => !o.menu); const lastI = options.indexOf(buttons[buttons.length - 1])
+      d.innerHTML = `<div class="scrim" data-act="dlg" data-v=""></div><div class="dlg card" role="alertdialog" aria-modal="true" aria-labelledby="dlgT"><h2 id="dlgT">${esc(title)}</h2>${message ? `<p>${esc(message)}</p>` : ''}${html || ''}${menu ? `<div class="menu">${menu}</div>` : ''}
+        <div class="dlg-actions">${options.map((o, i) => o.menu ? '' : `<button class="${o.danger ? 'danger' : i === lastI && !menu ? 'filled' : 'text-btn'}" data-act="dlg" data-v="${i}">${esc(o.label)}</button>`).join('')}</div></div>`
       d.hidden = false
       dialogDone = v => { const box = $('#askInput', d); typed = box ? box.value.trim() : ''; d.hidden = true; d.innerHTML = ''; dialogDone = null; res(v === '' || v === undefined ? null : options[+v].value) }
-      const first = $('#askInput', d) || $$('.dlg-actions button', d).pop(); if (first) first.focus()
+      const first = $('#askInput', d) || $('.menu-item', d) || $$('.dlg-actions button', d).pop(); if (first) first.focus()
     })
   }
   let typed = ''
@@ -1655,7 +1680,9 @@
     snack: el => { const a = snackActions[+el.dataset.i]; $('#snack').classList.remove('show'); if (a) a.run() },
   }
   function run(name, el, id) { const f = ACTS[name]; if (f) f(el || document.body, id) }
+  let press = null // long press on a task row
   function onClick(e) {
+    if (press && press.fired) { press = null; e.preventDefault(); return } // the long press already answered
     const el = e.target.closest('[data-act]'); if (!el) return
     if (el.tagName === 'A') e.preventDefault()
     if (el.tagName === 'INPUT' && el.type === 'checkbox' && el.dataset.act !== 'sync-toggle') return
@@ -1701,6 +1728,7 @@
     const i = cur ? rows.indexOf($('.body', cur)) : -1
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { const next = rows[Math.max(0, Math.min(rows.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))]; next.focus(); next.scrollIntoView({ block: 'nearest' }); return true }
     if ((e.key === 'x' || e.key === 'X') && cur && cur.classList.contains('task')) { toggleTask(cur.dataset.id); return true }
+    if ((e.key === 'm' || e.key === 'M') && cur && cur.classList.contains('task')) { quickMenu(cur.dataset.id); return true }
     return false
   }
 
@@ -1769,6 +1797,15 @@
       const text = (e.clipboardData || window.clipboardData).getData('text')
       if (/\n/.test(text.trim())) { e.preventDefault(); addSteps(text.split(/\r?\n/)) }
     })
+    const rowOf = e => { const b = e.target.closest && e.target.closest('.row.task .body'); return b ? b.closest('[data-id]').dataset.id : null }
+    document.addEventListener('pointerdown', e => {
+      const id = rowOf(e); if (!id || e.button > 0) return
+      press = { id: id, x: e.clientX, y: e.clientY, fired: false }
+      press.timer = setTimeout(() => { if (press && press.id === id) { press.fired = true; if (H.haptic) H.haptic(); quickMenu(id) } }, 550)
+    })
+    const unpress = e => { if (press && !press.fired && (e.type !== 'pointermove' || Math.abs(e.clientX - press.x) + Math.abs(e.clientY - press.y) > 12)) { clearTimeout(press.timer); press = null } }
+    ;['pointerup', 'pointercancel', 'pointermove'].forEach(t => document.addEventListener(t, unpress))
+    document.addEventListener('contextmenu', e => { const id = rowOf(e); if (!id) return; e.preventDefault(); if (!(press && press.fired)) quickMenu(id) })
     let swipe = null // a swipe on the calendar changes the month (or the week)
     document.addEventListener('touchstart', e => { swipe = e.target.closest && e.target.closest('.cal') && e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null }, { passive: true })
     document.addEventListener('touchend', e => {

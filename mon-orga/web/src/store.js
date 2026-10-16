@@ -10,7 +10,8 @@
  *  due   "2026-10-17T09:00" (with a time) or "2026-10-17" (a day only: reminders count from 09:00)
  *  remind  minutes before (0 = on time), several allowed: [1440, 60]
  *  repeat  daily | weekdays | weekly | weekly:1,3,5 (1 = Monday) | weeks:N | monthly | months:N | nth:K:D (K-th weekday D
- *          of the month, K = -1 for the last) | yearly | days:N | hours:N
+ *          of the month, K = -1 for the last) | yearly | days:N | hours:N; days, weeks and hours may end with
+ *          ":after" (counted from the tick: hours:3:after = 3 hours after the last time it was done)
  */
 (function (root) {
   'use strict'
@@ -204,7 +205,11 @@
     const done = Object.assign({}, t, { updatedAt: now, doneAt: now })
     if (t.repeat && t.due) {
       let next
-      if (t.due.length > 10) {
+      if (/:after$/.test(t.repeat)) { // "every 3 h after the last one": counted from the tick
+        const k = t.repeat.split(':')[0]; const n = Math.max(1, parseInt(t.repeat.split(':')[1], 10) || 1)
+        next = k === 'hours' ? stamp(new Date(now + n * 3600000)) : addDays(today(now), k === 'weeks' ? 7 * n : n) + (timeOf(t.due) ? 'T' + timeOf(t.due) : '')
+        if (t.until && dayOf(next) > t.until) next = null
+      } else if (t.due.length > 10) {
         const o = nextOccurrence(t.due, t.repeat, t.until, null, Math.max(ms(t.due), now))
         // the planned time stays, even when a DST change skips it on the next day (02:30 would become 03:30 for good)
         next = o === null ? null : t.repeat.indexOf('hours:') === 0 ? stamp(new Date(o)) : today(o) + 'T' + timeOf(t.due)

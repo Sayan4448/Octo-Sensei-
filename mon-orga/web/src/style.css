@@ -366,4 +366,7 @@ p.ok > .ic { color: var(--ok) } p.warn > .ic { color: var(--late) }
   .agenda-cols .cal { position: sticky; top: 0 }
   .agenda-cols .agenda-list > .sec:first-child { margin-top: 2px }
 }
-
+.menu { display: flex; flex-direction: column; margin: 4px -8px 0 }
+.menu-item { display: flex; align-items: center; gap: 12px; text-align: left; padding: 10px 12px; min-height: 48px; border-radius: 12px; font-size: 1rem }
+.menu-item .ic { color: var(--primary) }
+.menu-item:hover, .menu-item:focus-visible { background: var(--hover) }

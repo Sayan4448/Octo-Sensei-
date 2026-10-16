@@ -30,6 +30,7 @@ Ce dépôt contient deux choses :
 1. Télécharge le `.apk` depuis le téléphone et ouvre-le.
 2. Android demande d'autoriser « Installer des applis inconnues » pour ton navigateur : accepte (c'est normal pour une appli qui ne vient pas du Play Store).
 3. Au premier rappel, accepte les notifications, sinon rien ne sonne. L'onglet **Plus → Vérification des rappels** dit si tout est bon et répare en un bouton.
+4. **Samsung** : Paramètres → Batterie → Mon Orga → **Non restreinte**, sinon le téléphone endort l'appli. **Xiaomi** : autorise le *démarrage automatique*. Plus → Rappels → *Test dans 15 min* vérifie tout, téléphone verrouillé.
 
 **Mettre à jour** : installe la nouvelle version **par-dessus** l'ancienne. Ne désinstalle jamais avant : ça effacerait tes données.
 </details>
@@ -44,12 +45,12 @@ Ce dépôt contient deux choses :
 
 ### ✨ Ce qu'elle fait
 
-- **Écris comme tu parles** : « Dentiste jeudi 14h30 », « Médicament tous les jours à 8h », « Poubelles chaque mardi 19h ». La date et la répétition sont comprises.
+- **Écris comme tu parles** : « Dentiste jeudi 14h30 rappel 1 h avant », « Médicament à 8h, 12h et 19h tous les jours », « Poubelles chaque mardi 19h », « Service 18h-1h samedi ». La date, l'heure, la répétition et le rappel sont compris.
 - **Rappels qui ne se ratent pas** : *Fait*, *+10 min* et *Demain* dans la notification, relances, **mode réveil** plein écran, résumé du matin, rappels des rendez-vous.
-- **Tâches** rangées par jour (*En retard, Aujourd'hui, Demain…*), étapes à cocher, listes, importantes, répétitions de toutes sortes.
+- **Tâches** rangées par jour (*En retard, Aujourd'hui, Demain…*), étapes à cocher, listes, importantes, répétitions de toutes sortes (« le 1er lundi du mois », « tous les 3 mois »…). **Appui long** sur une tâche pour la reporter d'un geste.
 - **Notes** avec cases à cocher, liens et numéros cliquables, photos, épingles, #mots-clés.
-- **Agenda** en mois ou semaine, rendez-vous sur plusieurs jours, lieu, note liée.
-- **Recherche** partout, **sauvegarde** dans un fichier, import/export **.ics** (Google Agenda, Outlook).
+- **Agenda** en mois ou semaine, rendez-vous sur plusieurs jours ou de nuit, lieu, note liée, une seule séance d'une série modifiable, l'**agenda Google du téléphone** affiché à côté (si tu veux).
+- **Recherche** partout, **sauvegarde** dans un fichier ou **automatique chaque jour dans un dossier**, import/export **.ics** (Google Agenda, Outlook).
 - Widget, raccourcis, partage depuis d'autres apps, dictée, verrou par empreinte, progrès (série de jours, niveaux), mode sobre, mode gaucher, **English**.
 
 <p align="center"><img src="mon-orga/docs/pc.png" width="760" alt="Mon Orga sur PC : la liste à gauche, la tâche ouverte à droite"></p>
@@ -66,7 +67,10 @@ Sans l'appli PC, tape l'adresse affichée dans n'importe quel navigateur (Mac co
 
 ### 🔒 Tes données
 
-Pas de compte, pas de pub, rien n'est envoyé sur Internet : tout reste sur ton téléphone et ton PC. La synchro passe directement par ton Wi-Fi, protégée par le code à 6 chiffres.
+Pas de compte, pas de pub : Mon Orga n'envoie rien sur Internet, tout reste sur ton téléphone et ton PC. Deux précisions honnêtes :
+
+- si la **sauvegarde Google** du téléphone est activée, Android y copie aussi les données de Mon Orga (chiffrées avec le code de ton téléphone) ;
+- la **synchro** passe directement par ton Wi-Fi, protégée par le code à 6 chiffres mais pas chiffrée : utilise-la chez toi, pas sur un Wi-Fi public. *Plus → Nouveau code* coupe les PC déjà reliés.
 
 ### 🧑‍💻 Le code
 
@@ -129,5 +133,18 @@ Pour être sûr que c'est lui, commence ton message par `@agent-octo-sensei` (ou
 
 ## In English
 
-**Mon Orga** is a to-do list, notes and calendar app for Android and Windows (and Linux), in English and French, with reminders that are hard to miss (Done / Later / Tomorrow buttons, nagging, alarm mode) and natural-language dates (“Dentist Thursday 2:30pm”, “Pills every day at 8am”). The phone and the PC sync over the same Wi-Fi; no account, nothing leaves your devices. Download it from the [latest release](https://github.com/Sayan4448/Octo-Sensei-/releases/latest).
+**Mon Orga** is a to-do list, notes and calendar app for Android and Windows (and Linux), in English and French, with reminders that are hard to miss (Done / Later / Tomorrow buttons, nagging, alarm mode) and natural-language dates (“Dentist Thursday 2:30pm remind me 1 hour before”, “Pills every day at 8am”). The phone and the PC sync over the same Wi-Fi; no account, no ads.
+
+**Download**: open the [latest release](https://github.com/Sayan4448/Octo-Sensei-/releases/latest) and pick, under *Assets*: `Mon-Orga-….apk` for Android (8.0 or later), `Mon-Orga-Setup-….exe` for Windows (or `…-portable.exe`, no install), `…-linux.AppImage` for Linux.
+
+**Install on Android**: open the `.apk` on the phone and allow “Install unknown apps” for your browser (normal for an app that is not on the Play Store). Accept notifications at the first reminder. *More → Reminder check* tells you if anything blocks reminders and fixes it in one tap. On Samsung, set Battery → Mon Orga → **Unrestricted**.
+
+**Update**: install the new `.apk` **over** the old one. **Never uninstall first: it would erase your data.**
+
+**Install on Windows**: run `Mon-Orga-Setup-….exe`. The app is not signed; on the “Windows protected your PC” screen, click **More info**, then **Run anyway**.
+
+**Sync with the PC**: put both on the same Wi-Fi. On the phone, *More → Open Mon Orga on the PC*, turn the switch on: an address and a 6-digit code appear. On the PC app, *More → Find my phone* and type the code. Without the PC app, type the address in any browser (Mac included).
+
+**Your data**: nothing is sent over the Internet. If the phone's Google backup is on, Android also copies Mon Orga's data there (encrypted with your screen lock). The sync is protected by the code but not encrypted: use it at home, not on public Wi-Fi.
+
 **Octo-Sensei** is a Claude Code agent for GitHub and git work: clean pull requests, red CI, merge conflicts, reviews, issues and releases.
