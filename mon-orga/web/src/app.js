@@ -403,8 +403,22 @@
       <button class="icon-btn star" data-act="star" aria-pressed="${t.important}" aria-label="${esc(T('important'))}" title="${esc(T('important'))}">${icon(t.important ? 'star' : 'star_border')}</button>
     </li>`
   }
+  // The next thing with a time, in the coming 24 hours: "Next: Dentist · 4:30 PM (in 2 h)".
+  function nextUp() {
+    const n = now(); let best = null
+    S.live(doc.tasks).forEach(t => { if (!t.done && t.due && t.due.length > 10) { const at = S.ms(t.due); if (at >= n && (!best || at < best.at)) best = { at: at, item: t } } })
+    for (let i = 0; i < 2; i++) {
+      const d = S.addDays(S.today(n), i)
+      S.eventsOn(doc.events, d).forEach(e => { if (e.time && S.eventStartOn(e, d) === d) { const at = S.ms(d + 'T' + e.time); if (at >= n && (!best || at < best.at)) best = { at: at, item: e, day: d } } })
+    }
+    return best && best.at - n < 86400000 ? best : null
+  }
   function tasksView() {
     const n = now()
+    let top = ''
+    if (ui.notifOff) top += `<div class="banner warn-banner">${icon('bell')}<span>${esc(T('notifOff'))}</span><button class="text-btn" data-act="fix" data-k="notifications">${esc(T('fixIt'))}</button></div>`
+    const next = !ui.filter && nextUp()
+    if (next) top += `<button class="banner next" data-act="open-next" data-id="${next.item.id}" data-day="${next.day || ''}">${icon('clock')}<span>${esc(T('nextUp', next.item.text, fmtTime(S.hm(new Date(next.at))), rel(next.at)))}</span>${icon('right')}</button>`
     const tasks = S.sortTasks(doc.tasks, n).filter(passes)
     const groups = {}; S.SECTIONS.forEach(s => { groups[s] = [] })
     tasks.forEach(t => groups[S.sectionOf(t, n)].push(t))
@@ -420,7 +434,7 @@
       html += `<h2 class="sec ${s}">${esc(T('sec_' + s))} <span class="count">${list.length}</span>${extra}</h2><ul class="list">${list.map(t => taskRow(t)).join('')}</ul>`
     })
     if (!tasks.length && ui.filter) html = `<p class="empty">${esc(T('nothingHere'))}</p>`
-    return html + '<div class="spacer"></div>'
+    return top + html + '<div class="spacer"></div>'
   }
 
   // ---------- notes ----------
@@ -1213,6 +1227,7 @@
     },
     'test-alarm': el => { H.testAlarm(el.dataset.v === '1'); snack(T('testSoon')) },
     fix: el => H.fix(el.dataset.k),
+    'open-next': el => { const it = S.find(doc, el.dataset.id); if (!it) return; if (kindOf(it.id) === 'events') { ui.day = el.dataset.day || it.day } openSheet(it.id, { day: el.dataset.day || null }) },
     'export-json': () => H.exportFile('mon-orga-' + S.today(now()) + '.json', 'application/json', JSON.stringify(doc)).then(ok => { if (ok) snack(T('exported')) }),
     'import-json': () => importData('json'),
     'export-ics': () => H.exportFile('mon-orga-agenda.ics', 'text/calendar', S.toIcs(doc, now())).then(ok => { if (ok) snack(T('exportedIcs')) }),
@@ -1284,6 +1299,13 @@
     document.body.classList.toggle('wide-ok', true)
     const meta = $('meta[name="theme-color"]'); if (meta) meta.content = dark ? '#141218' : '#fef7ff'
   }
+  async function checkNotifications() {
+    if (!H.diagnostics) return
+    const hasReminders = S.live(doc.tasks).some(t => !t.done && t.due && t.remind.length) || S.live(doc.events).some(e => e.remind.length)
+    const list = await H.diagnostics()
+    const off = hasReminders && list.some(d => d.key === 'notifications' && !d.ok)
+    if (off !== !!ui.notifOff) { ui.notifOff = off; if (ui.tab === 'tasks') renderMain() }
+  }
   async function refresh() {
     let fresh
     try { fresh = S.normalize(await H.load()) } catch (e) { return }
@@ -1319,11 +1341,15 @@
     if (window.matchMedia) { const mq = window.matchMedia('(prefers-color-scheme: dark)'); if (mq.addEventListener) mq.addEventListener('change', () => { applySettings() }) }
     setInterval(() => { if (set.focus) renderFocus() }, 1000)
     setInterval(tick, 30000)
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) { refresh(); tick() } })
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) { refresh(); tick(); checkNotifications() } })
+    checkNotifications()
     const start = H.startAction && H.startAction()
     if (start) action(start)
     else if (!set.welcomed && !S.live(doc.tasks).length && !S.live(doc.notes).length) welcome()
-    else if (!set.welcomed) { set.welcomed = true; saveSettings() }
+    else if (!set.welcomed) { // data from version 4: show what changed instead of the welcome
+      set.welcomed = true; saveSettings()
+      choose(T('whatsNewTitle'), '', [{ label: T('letsGo'), value: 1 }], `<ul class="tips">${T('whatsNew').split('|').map(t => `<li>${esc(t)}</li>`).join('')}</ul>`)
+    }
   }
   window.app = {
     back: () => {

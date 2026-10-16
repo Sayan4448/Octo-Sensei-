@@ -41,6 +41,7 @@ test('the interface, end to end', { skip: !playwright && 'playwright is not inst
       await page.click('#snack button >> nth=0') // "Dans 1 h"
       const row = page.locator('.row.task', { hasText: 'Rappeler Julie' })
       assert.match(await row.textContent(), /Aujourd'hui 10:30/)
+      assert.match(await page.textContent('.banner.next'), /Prochain : Rappeler Julie · 10:30 \(dans 1 h\)/)
     })
     await t.test('ticking, undo, and a repeating task moving to its next date', async () => {
       await page.click('.row.task:has-text("Appeler le garage") .check')

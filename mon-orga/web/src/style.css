@@ -145,6 +145,13 @@ input[role=switch]:checked::after { left: 22px; top: 2px; width: 24px; height: 2
 .mini { display: inline-flex; align-items: center; gap: 4px; padding: 6px 12px 6px 8px; border-radius: 999px; background: var(--secondary-container); color: var(--on-secondary-container); font-size: .8125rem; font-weight: 600; min-height: 36px; flex: none }
 .mini .ic { width: 16px; height: 16px }
 
+/* ---------- banners at the top of the tasks ---------- */
+.banner { display: flex; align-items: center; gap: 10px; width: 100%; margin: 6px 0 2px; padding: 10px 8px 10px 14px; border-radius: 16px; text-align: left; font-size: .9375rem; min-height: 48px }
+.banner > span { flex: 1; min-width: 0 }
+.banner.next { background: var(--primary-container); color: var(--on-primary-container); font-weight: 600 }
+.warn-banner { background: var(--tertiary-container); color: var(--on-tertiary-container) }
+.warn-banner .text-btn { color: inherit }
+
 /* ---------- notes ---------- */
 .grid { list-style: none; padding: 0; margin: 0 0 8px; columns: 2 150px; column-gap: 10px }
 .card.note { break-inside: avoid; margin: 0 0 10px; background: var(--surface-low); border: 1px solid var(--outline-variant); border-radius: 16px; overflow: hidden }
