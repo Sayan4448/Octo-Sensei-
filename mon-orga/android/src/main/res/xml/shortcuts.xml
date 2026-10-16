@@ -1,0 +1,14 @@
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:enabled="true" android:icon="@drawable/sc_task" android:shortcutId="task" android:shortcutShortLabel="@string/shortcut_task">
+        <intent android:action="com.sayan.todo.ADD_TASK" android:targetClass="com.sayan.todo.MainActivity" android:targetPackage="com.sayan.todo" />
+    </shortcut>
+    <shortcut android:enabled="true" android:icon="@drawable/sc_voice" android:shortcutId="voice" android:shortcutShortLabel="@string/shortcut_voice">
+        <intent android:action="com.sayan.todo.VOICE" android:targetClass="com.sayan.todo.MainActivity" android:targetPackage="com.sayan.todo" />
+    </shortcut>
+    <shortcut android:enabled="true" android:icon="@drawable/sc_note" android:shortcutId="note" android:shortcutShortLabel="@string/shortcut_note">
+        <intent android:action="com.sayan.todo.ADD_NOTE" android:targetClass="com.sayan.todo.MainActivity" android:targetPackage="com.sayan.todo" />
+    </shortcut>
+    <shortcut android:enabled="true" android:icon="@drawable/sc_event" android:shortcutId="event" android:shortcutShortLabel="@string/shortcut_event">
+        <intent android:action="com.sayan.todo.ADD_EVENT" android:targetClass="com.sayan.todo.MainActivity" android:targetPackage="com.sayan.todo" />
+    </shortcut>
+</shortcuts>

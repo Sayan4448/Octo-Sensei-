@@ -1,0 +1,34 @@
+name: 🐛 Un problème avec Mon Orga
+description: Quelque chose ne marche pas comme prévu.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: Que s'est-il passé ?
+      description: Ce que tu as fait, ce que tu attendais, ce qui est arrivé à la place.
+      placeholder: "J'ai programmé « Dentiste jeudi 14h », le rappel n'a pas sonné."
+    validations:
+      required: true
+  - type: dropdown
+    id: device
+    attributes:
+      label: Sur quel appareil ?
+      options:
+        - Téléphone Android
+        - PC Windows
+        - Navigateur (version PC ouverte depuis le téléphone)
+        - Linux
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version de Mon Orga et d'Android ou Windows
+      description: Dans l'app, onglet Plus, tout en bas.
+      placeholder: "Mon Orga 5.0, Android 14, Samsung A34"
+  - type: textarea
+    id: more
+    attributes:
+      label: Une capture d'écran ? (facultatif)
+      description: Évite d'y montrer des informations personnelles.

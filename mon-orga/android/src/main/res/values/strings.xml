@@ -1,0 +1,41 @@
+<resources>
+    <!-- English is the default; values-fr holds the French. The interface itself is translated in web/src/i18n.js. -->
+    <string name="app_name" translatable="false">Mon Orga</string>
+    <string name="ch_reminders">Reminders</string>
+    <string name="ch_important">Important reminders</string>
+    <string name="ch_alarm">Alarm mode</string>
+    <string name="ch_summary">Morning summary</string>
+    <string name="ch_pc">PC version</string>
+    <string name="act_done">Done</string>
+    <string name="act_snooze">+%d min</string>
+    <string name="act_tomorrow">Tomorrow</string>
+    <string name="act_stop">Stop</string>
+    <string name="act_ok">OK</string>
+    <string name="notif_private">Mon Orga reminder</string>
+    <string name="all_day">All day</string>
+    <string name="tomorrow_at">Tomorrow %s</string>
+    <string name="late_since">Overdue since %s</string>
+    <string name="more_n">+%d more</string>
+    <plurals name="missed"><item quantity="one">%d missed reminder</item><item quantity="other">%d missed reminders</item></plurals>
+    <plurals name="summary_title"><item quantity="one">Your day: %d thing</item><item quantity="other">Your day: %d things</item></plurals>
+    <plurals name="late"><item quantity="one">%d overdue</item><item quantity="other">%d overdue</item></plurals>
+    <string name="focus_done">Break time!</string>
+    <string name="focus_text">25 minutes of focus on “%s”</string>
+    <string name="test_title">Test reminder</string>
+    <string name="test_text">Reminders work ✓</string>
+    <string name="pc_active">PC version active</string>
+    <string name="pc_text">On the PC: %1$s · code %2$s</string>
+    <string name="pc_no_wifi">No Wi-Fi: connect the phone to the same network as the PC</string>
+    <string name="lock_title">Unlock Mon Orga</string>
+    <string name="lock_button">Unlock</string>
+    <string name="voice_prompt">What do you need to do?</string>
+    <string name="widget_title">Today</string>
+    <string name="widget_empty">Nothing planned today</string>
+    <string name="widget_desc">Today’s tasks and events</string>
+    <string name="add">Add</string>
+    <string name="no_app">No app can open this</string>
+    <string name="shortcut_task">New task</string>
+    <string name="shortcut_note">New note</string>
+    <string name="shortcut_event">New event</string>
+    <string name="shortcut_voice">Dictate a task</string>
+</resources>

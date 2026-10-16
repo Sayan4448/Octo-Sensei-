@@ -9,7 +9,11 @@ Ce dépôt contient **Octo-Sensei**, un agent Claude Code expert de GitHub et gi
 
 ## Mon Orga (`mon-orga/`)
 
-L'app Android de Sayan (Kotlin, Material 3, sans base de données : tout est dans `SharedPreferences`). Avant de pousser : `cd mon-orga && ./gradlew testDebugUnitTest assembleDebug` (JDK 21, `ANDROID_HOME` défini). L'APK n'est pas commité : il est envoyé à Sayan dans la conversation. `debug.keystore` reste dans le dépôt, c'est lui qui permet d'installer une version par-dessus la précédente.
+L'app de Sayan : une seule interface web (`mon-orga/web/src`, sans dépendance) affichée par l'app Android (`mon-orga/android`, WebView + Kotlin pour rappels, widget, serveur PC) et par l'app PC (`mon-orga/pc`, Electron). Détails dans `mon-orga/README.md`.
+
+- Avant de pousser : `cd mon-orga/web && TZ=Europe/Paris npm test`, `cd mon-orga/android && ./gradlew testDebugUnitTest assembleDebug` (JDK 21, `ANDROID_HOME` défini), `cd mon-orga/pc && npm test` (`xvfb-run -a` sans écran). La CI lance les mêmes.
+- Une règle de dates ou de rappels change ? Elle existe en double (`web/src/store.js` et `android/.../Store.kt`) : change les deux et ajoute le cas dans `web/test/fixtures.json`, lu par les deux suites de tests.
+- Publier : tag `vX.Y.Z` sur `main` → le workflow Release construit l'APK et les apps PC et crée la release. Les fichiers construits ne sont jamais commités. `android/debug.keystore` reste dans le dépôt : c'est lui qui permet d'installer une version par-dessus la précédente.
 
 ## Modifier ce dépôt
 

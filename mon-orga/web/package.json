@@ -1,0 +1,12 @@
+{
+  "name": "mon-orga-web",
+  "private": true,
+  "description": "Mon Orga's interface, shared by the Android app, the PC app and the browser",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\"",
+    "screenshots": "node test/screenshots.js"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}

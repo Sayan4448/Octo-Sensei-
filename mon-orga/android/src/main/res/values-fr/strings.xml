@@ -1,0 +1,39 @@
+<resources>
+    <string name="ch_reminders">Rappels</string>
+    <string name="ch_important">Rappels importants</string>
+    <string name="ch_alarm">Mode réveil</string>
+    <string name="ch_summary">Résumé du matin</string>
+    <string name="ch_pc">Version PC</string>
+    <string name="act_done">Fait</string>
+    <string name="act_snooze">+%d min</string>
+    <string name="act_tomorrow">Demain</string>
+    <string name="act_stop">Arrêter</string>
+    <string name="act_ok">OK</string>
+    <string name="notif_private">Rappel Mon Orga</string>
+    <string name="all_day">Journée</string>
+    <string name="tomorrow_at">Demain %s</string>
+    <string name="late_since">En retard depuis %s</string>
+    <string name="more_n">+%d autres</string>
+    <plurals name="missed"><item quantity="one">%d rappel manqué</item><item quantity="many">%d rappels manqués</item><item quantity="other">%d rappels manqués</item></plurals>
+    <plurals name="summary_title"><item quantity="one">Ta journée : %d chose</item><item quantity="many">Ta journée : %d choses</item><item quantity="other">Ta journée : %d choses</item></plurals>
+    <plurals name="late"><item quantity="one">%d en retard</item><item quantity="many">%d en retard</item><item quantity="other">%d en retard</item></plurals>
+    <string name="focus_done">C’est la pause !</string>
+    <string name="focus_text">25 minutes de focus sur « %s »</string>
+    <string name="test_title">Rappel de test</string>
+    <string name="test_text">Les rappels fonctionnent ✓</string>
+    <string name="pc_active">Version PC active</string>
+    <string name="pc_text">Sur le PC : %1$s · code %2$s</string>
+    <string name="pc_no_wifi">Pas de Wi-Fi : connecte le téléphone au même réseau que le PC</string>
+    <string name="lock_title">Déverrouiller Mon Orga</string>
+    <string name="lock_button">Déverrouiller</string>
+    <string name="voice_prompt">Que faut-il faire ?</string>
+    <string name="widget_title">Aujourd’hui</string>
+    <string name="widget_empty">Rien de prévu aujourd’hui</string>
+    <string name="widget_desc">Tâches et rendez-vous du jour</string>
+    <string name="add">Ajouter</string>
+    <string name="no_app">Aucune app ne peut ouvrir ceci</string>
+    <string name="shortcut_task">Nouvelle tâche</string>
+    <string name="shortcut_note">Nouvelle note</string>
+    <string name="shortcut_event">Nouveau rendez-vous</string>
+    <string name="shortcut_voice">Dicter une tâche</string>
+</resources>
