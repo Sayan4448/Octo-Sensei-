@@ -21,6 +21,7 @@
   "build": {
     "appId": "com.sayan.monorga",
     "productName": "Mon Orga",
+    "publish": null,
     "directories": {
       "output": "dist",
       "buildResources": "build"
