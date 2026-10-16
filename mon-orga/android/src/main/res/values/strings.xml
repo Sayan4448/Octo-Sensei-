@@ -5,37 +5,65 @@
     <string name="ch_important">Important reminders</string>
     <string name="ch_alarm">Alarm mode</string>
     <string name="ch_summary">Morning summary</string>
+    <string name="ch_quiet">Night reminders (vibrate)</string>
     <string name="ch_pc">PC version</string>
     <string name="act_done">Done</string>
     <string name="act_snooze">+%d min</string>
     <string name="act_tomorrow">Tomorrow</string>
     <string name="act_stop">Stop</string>
     <string name="act_ok">OK</string>
+    <string name="act_snooze_h" translatable="false">+%d h</string>
+    <string name="act_later">Later…</string>
+    <string name="act_call">Call</string>
+    <string name="act_route">Directions</string>
+    <string name="act_undo">Undo</string>
+    <string name="act_all_tomorrow">All to tomorrow</string>
+    <string name="tonight_at">Tonight %s</string>
+    <string name="same_time_tomorrow">Tomorrow, same time</string>
+    <string name="undo_done">✓ Done: %s</string>
+    <string name="undo_done_sober">Done: %s</string>
+    <string name="in_time">in %s</string>
+    <string name="late_by">late by %s</string>
+    <string name="dur_min" translatable="false">%d min</string>
+    <string name="dur_h" translatable="false">%d h</string>
+    <string name="dur_hm" translatable="false">%1$d h %2$02d</string>
+    <plurals name="dur_days"><item quantity="one">%d day</item><item quantity="other">%d days</item></plurals>
+    <string name="overdue">(overdue)</string>
     <string name="notif_private">Mon Orga reminder</string>
     <string name="all_day">All day</string>
     <string name="tomorrow_at">Tomorrow %s</string>
     <string name="late_since">Overdue since %s</string>
     <string name="more_n">+%d more</string>
+    <plurals name="rang_together"><item quantity="one">%d reminder</item><item quantity="other">%d reminders</item></plurals>
     <plurals name="missed"><item quantity="one">%d missed reminder</item><item quantity="other">%d missed reminders</item></plurals>
     <plurals name="summary_title"><item quantity="one">Your day: %d thing</item><item quantity="other">Your day: %d things</item></plurals>
+    <plurals name="summary_title_sober"><item quantity="one">Today: %d item</item><item quantity="other">Today: %d items</item></plurals>
     <plurals name="late"><item quantity="one">%d overdue</item><item quantity="other">%d overdue</item></plurals>
     <string name="focus_done">Break time!</string>
+    <string name="focus_done_sober">A break is advised</string>
+    <string name="focus_pause">Break over, back to it?</string>
+    <string name="focus_pause_sober">Break over</string>
     <string name="focus_text">25 minutes of focus on “%s”</string>
     <string name="test_title">Test reminder</string>
     <string name="test_text">Reminders work ✓</string>
+    <string name="test_text_sober">Reminders work.</string>
     <string name="pc_active">PC version active</string>
     <string name="pc_text">On the PC: %1$s · code %2$s</string>
     <string name="pc_no_wifi">No Wi-Fi: connect the phone to the same network as the PC</string>
+    <string name="pc_no_wifi_sober">No Wi-Fi: connect the phone to the same network as the PC</string>
     <string name="lock_title">Unlock Mon Orga</string>
     <string name="lock_button">Unlock</string>
     <string name="voice_prompt">What do you need to do?</string>
     <string name="widget_title">Today</string>
     <string name="widget_empty">Nothing planned today</string>
     <string name="widget_desc">Today’s tasks and events</string>
+    <plurals name="widget_tasks"><item quantity="one">%d task today</item><item quantity="other">%d tasks today</item></plurals>
+    <plurals name="widget_events"><item quantity="one">%d event</item><item quantity="other">%d events</item></plurals>
     <string name="add">Add</string>
     <string name="no_app">No app can open this</string>
     <string name="shortcut_task">New task</string>
     <string name="shortcut_note">New note</string>
     <string name="shortcut_event">New event</string>
     <string name="shortcut_voice">Dictate a task</string>
+    <string name="shortcut_voice_note">Voice note</string>
 </resources>

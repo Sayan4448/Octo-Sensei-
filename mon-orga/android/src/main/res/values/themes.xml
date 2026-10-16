@@ -14,5 +14,10 @@
         <item name="android:navigationBarColor">@color/alarm_bg</item>
     </style>
 
+    <!-- "Later…": a small dialog over whatever is on screen. -->
+    <style name="SnoozeTheme" parent="Theme.AppCompat.DayNight.Dialog">
+        <item name="windowNoTitle">true</item>
+    </style>
+
     <color name="ic_launcher_background">#6750A4</color>
 </resources>

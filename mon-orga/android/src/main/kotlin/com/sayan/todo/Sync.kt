@@ -16,14 +16,15 @@ import org.json.JSONObject
 import java.io.IOException
 import java.net.Inet4Address
 import java.net.NetworkInterface
+import java.security.SecureRandom
 
 const val SYNC_PORT = 8080
 
 // The 6-digit code every data request must carry (?k=...), so a neighbour on the same Wi-Fi cannot read the data.
-fun syncCode(ctx: Context): String {
-    val prefs = ctx.prefs()
-    return prefs.getString("syncCode", null) ?: (100000..999999).random().toString().also { prefs.edit().putString("syncCode", it).apply() }
-}
+fun syncCode(ctx: Context): String = ctx.prefs().getString("syncCode", null) ?: newSyncCode(ctx)
+
+// A fresh code: the old one stops working at once (the server reads the code at every request).
+fun newSyncCode(ctx: Context): String = (100000 + SecureRandom().nextInt(900000)).toString().also { ctx.prefs().edit().putString("syncCode", it).commit() }
 
 // The phone's address on the local network (Wi-Fi first), or null without one.
 fun localIp(): String? = runCatching {
@@ -40,19 +41,22 @@ fun syncInfo(ctx: Context): String = JSONObject().put("on", ctx.prefs().getBoole
     .put("url", syncUrl(ctx) ?: JSONObject.NULL).put("code", syncCode(ctx)).toString()
 
 // Small HTTP server for the PC: the same interface as the app (from the assets) and the data API.
-// /api/ping answers without the code (the PC app finds the phone with it); everything else that touches data needs it.
-class SyncServer(private val ctx: Context, private val code: String, port: Int = SYNC_PORT) : NanoHTTPD(port) {
-    @Volatile private var failures = 0
-    @Volatile private var blockedUntil = 0L
+// /api/ping answers without the code (the PC app finds the phone with it), the phone's name only with it; everything
+// else that touches data needs it. No CORS: the PC app is not a browser, and the page the phone serves is same-origin.
+// `code` is fixed for the tests; otherwise the current one is read at every request.
+class SyncServer(private val ctx: Context, private val code: String? = null, port: Int = SYNC_PORT) : NanoHTTPD(port) {
+    private var failures = 0
+    private var lockouts = 0
+    private var blockedUntil = 0L
+    internal var clock: () -> Long = System::currentTimeMillis
 
-    override fun serve(session: IHTTPSession): Response = cors(
+    override fun serve(session: IHTTPSession): Response = noStore(
         try { route(session) } catch (e: Exception) { text(Response.Status.INTERNAL_ERROR, "Error") },
     )
 
     private fun route(s: IHTTPSession): Response {
         val uri = s.uri
-        if (s.method == Method.OPTIONS) return newFixedLengthResponse(Response.Status.NO_CONTENT, "text/plain", "")
-        if (uri == "/api/ping") return json(JSONObject().put("app", "mon-orga").put("name", Build.MODEL).toString())
+        if (uri == "/api/ping") return json(JSONObject().put("app", "mon-orga").put("ok", true).apply { if (codeOk(s.parms["k"])) put("name", Build.MODEL) }.toString())
         val wantsData = uri.startsWith("/api/") || uri == "/" || uri == "/index.html"
         if (wantsData && !codeOk(s.parms["k"])) {
             return if (uri.startsWith("/api/")) text(Response.Status.UNAUTHORIZED, "Code incorrect") else html(CODE_PAGE)
@@ -64,6 +68,7 @@ class SyncServer(private val ctx: Context, private val code: String, port: Int =
                 val body = HashMap<String, String>()
                 s.parseBody(body)
                 val merged = syncDoc(prefs, JSONObject(body["postData"] ?: "{}"))
+                    ?: return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json", """{"error":"storage"}""")
                 Reminders.edited(ctx); Widget.update(ctx)
                 json(merged.toString())
             }
@@ -72,12 +77,12 @@ class SyncServer(private val ctx: Context, private val code: String, port: Int =
         }
     }
 
-    // Too many wrong codes: refuse everything for a minute (6 digits must not be guessable in a loop).
-    private fun codeOk(k: String?): Boolean {
-        val now = System.currentTimeMillis()
+    // 10 wrong codes: refuse everything for a minute, then 2, 4… up to an hour for each further 10 (6 digits must not be guessable in a loop).
+    @Synchronized private fun codeOk(k: String?): Boolean {
+        val now = clock()
         if (now < blockedUntil) return false
-        if (k == code) return true
-        if (k != null && ++failures >= 10) { failures = 0; blockedUntil = now + 60_000 }
+        if (k == (code ?: syncCode(ctx))) { failures = 0; lockouts = 0; return true }
+        if (k != null && ++failures >= 10) { failures = 0; blockedUntil = now + minOf(60L, 1L shl minOf(lockouts, 6)) * 60_000; lockouts++ }
         return false
     }
 
@@ -94,12 +99,7 @@ class SyncServer(private val ctx: Context, private val code: String, port: Int =
     private fun text(status: Response.Status, s: String) = newFixedLengthResponse(status, "text/plain; charset=utf-8", s)
     private fun html(s: String) = newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", s)
 
-    private fun cors(r: Response) = r.apply {
-        addHeader("Access-Control-Allow-Origin", "*")
-        addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        addHeader("Access-Control-Allow-Headers", "Content-Type")
-        addHeader("Cache-Control", "no-store")
-    }
+    private fun noStore(r: Response) = r.apply { addHeader("Cache-Control", "no-store") }
 
     companion object {
         private val CODE_PAGE = """<!doctype html><html lang="fr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -117,18 +117,19 @@ class SyncService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == STOP) { prefs().edit().putBoolean("syncOn", false).apply(); stopSelf(); return START_NOT_STICKY }
-        val t = Reminders.texts(this)
+        val s = settings(prefs()); val t = Reminders.texts(this, s)
         getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel(CHANNEL, t.getString(R.string.ch_pc), NotificationManager.IMPORTANCE_LOW))
         val url = syncUrl(this)
         val notification = NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_pc).setColor(0xFF6750A4.toInt())
             .setContentTitle(t.getString(R.string.pc_active))
-            .setContentText(if (url != null) t.getString(R.string.pc_text, url.substringBefore("/?"), syncCode(this)) else t.getString(R.string.pc_no_wifi))
+            .setContentText(if (url != null) t.getString(R.string.pc_text, url.substringBefore("/?"), syncCode(this)) else t.getString(if (s.sober) R.string.pc_no_wifi_sober else R.string.pc_no_wifi))
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET) // the code never shows on the lock screen
             .setContentIntent(Reminders.openApp(this, null))
             .addAction(0, t.getString(R.string.act_stop), PendingIntent.getService(this, 3, Intent(this, SyncService::class.java).setAction(STOP), PendingIntent.FLAG_IMMUTABLE))
             .setOngoing(true).build()
         ServiceCompat.startForeground(this, 2, notification, if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0)
-        if (server == null) server = runCatching { SyncServer(this, syncCode(this)).also { it.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false) } }.getOrNull()
+        if (server == null) server = runCatching { SyncServer(this).also { it.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false) } }.getOrNull()
         running = true
         return START_STICKY
     }

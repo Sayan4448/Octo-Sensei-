@@ -1,0 +1,4 @@
+<!-- Photos taken for a note ("Camera" in the picker) wait here until the page has read them. -->
+<paths>
+    <cache-path name="camera" path="camera/" />
+</paths>

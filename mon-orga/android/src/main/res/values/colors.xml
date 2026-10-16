@@ -4,6 +4,7 @@
     <color name="primary">#6750A4</color>
     <color name="primary_container">#EADDFF</color>
     <color name="widget_bg">#F3EDF7</color>
+    <color name="late">#B3261E</color>
     <color name="alarm_bg">#21005D</color>
     <color name="alarm_text">#FFFFFF</color>
     <color name="alarm_button">#EADDFF</color>
