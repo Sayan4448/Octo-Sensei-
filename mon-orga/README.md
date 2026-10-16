@@ -48,4 +48,4 @@ L'APK est signé avec [`android/debug.keystore`](android/debug.keystore), gardé
 ## Publier une version
 
 1. Mets à jour `versionCode`/`versionName` dans [`android/build.gradle.kts`](android/build.gradle.kts) et [`RELEASE_NOTES.md`](RELEASE_NOTES.md).
-2. Pousse un tag `vX.Y.Z` sur `main` : le workflow [*Release*](../.github/workflows/release.yml) construit l'APK, l'installateur et la version portable Windows, l'AppImage Linux, puis publie la release avec les notes.
+2. Lance le workflow [*Release*](../.github/workflows/release.yml) : sur GitHub, onglet **Actions** → **Release** → **Run workflow** (la version vient de `pc/package.json` si tu ne la tapes pas), ou pousse un tag `vX.Y.Z` sur `main`. Il construit l'APK, l'installateur et la version portable Windows, l'AppImage Linux, puis publie la release avec les notes.
