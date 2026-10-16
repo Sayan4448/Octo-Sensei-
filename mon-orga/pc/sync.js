@@ -55,12 +55,13 @@ function open(code, env) { // throws when the code (so the key) is wrong or the 
   return JSON.parse(Buffer.concat([d.update(all.subarray(0, all.length - 16)), d.final()]).toString('utf8'))
 }
 async function exchange(address, code, doc, since) {
-  const pong = await ping(address, 3000).catch(() => null)
+  const asked = Date.now(); const pong = await ping(address, 3000).catch(() => null)
   if (!pong) throw Object.assign(new Error('unreachable'), { code: 'unreachable' })
+  const skew = pong.now ? pong.now - Math.round((asked + Date.now()) / 2) : 0 // the phone refuses requests 2 min off its clock: use its time
   if (!(pong.v >= 2)) { // a phone still on 5.1.0: the old way, the code in the address
     return doc ? request(address, '/api/sync?k=' + encodeURIComponent(code), doc, 15000) : request(address, '/api/state?k=' + encodeURIComponent(code))
   }
-  const env = await request(address, '/api/v2/sync', seal(code, { ts: Date.now(), nonce: crypto.randomBytes(8).toString('hex'), since: since || 0, doc: doc || null }), 15000)
+  const env = await request(address, '/api/v2/sync', seal(code, { ts: Date.now() + skew, nonce: crypto.randomBytes(8).toString('hex'), since: since || 0, doc: doc || null }), 15000)
   try { return open(code, env).doc } catch (e) { throw Object.assign(new Error('badCode'), { code: 'badCode' }) }
 }
 

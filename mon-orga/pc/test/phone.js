@@ -8,7 +8,7 @@ module.exports = function fakePhone(code, doc) {
     const url = new URL(req.url, 'http://x')
     phone.calls.push(url.pathname)
     const send = (status, body) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(typeof body === 'string' ? body : JSON.stringify(body)) }
-    if (url.pathname === '/api/ping') return send(200, Object.assign({ app: 'mon-orga', name: 'Pixel test' }, phone.old ? {} : { v: 2 }))
+    if (url.pathname === '/api/ping') return send(200, Object.assign({ app: 'mon-orga', name: 'Pixel test' }, phone.old ? {} : { v: 2, now: Date.now() + (phone.skew || 0) }))
     if (url.pathname === '/api/v2/sync' && !phone.old) { // encrypted, like Sync.kt
       phone.contentType = req.headers['content-type']
       const chunks = []
@@ -16,6 +16,7 @@ module.exports = function fakePhone(code, doc) {
       req.on('end', () => {
         let msg
         try { msg = open(code, JSON.parse(Buffer.concat(chunks).toString('utf8'))) } catch (e) { return send(401, '"Code incorrect"') }
+        if (Math.abs(Date.now() + (phone.skew || 0) - msg.ts) > 120000) return send(401, '"Trop vieux"') // like Sync.kt
         phone.since = msg.since
         if (msg.doc) phone.doc = Store.merge(phone.doc, msg.doc, msg.since)
         send(200, seal(code, { ts: Date.now(), doc: phone.doc }))

@@ -41,9 +41,15 @@ class ScreensTest {
 
     @Test fun laterSnoozesOrMovesATask() {
         store(listOf(item("a", "due" to "${today}T10:00")))
+        val evening = System.currentTimeMillis().toLocal().hour < 18
         val a = later("a")
         val labels = buttons(a).map { it.text.toString() }
-        assertTrue(labels.containsAll(listOf("+10 min", "+1 h", "+3 h", "Tomorrow, same time")))
+        assertEquals(listOf("+10 min", "+30 min", "+1 h", "+3 h"), labels.take(4))
+        assertEquals(evening, labels[4].startsWith("Tonight"))
+        assertTrue(labels[labels.size - 2].startsWith("Tomorrow 9"))
+        assertEquals("Tomorrow, same time", labels.last())
+        assertEquals(if (evening) 7 else 6, labels.size)
+        assertEquals(labels.distinct(), labels)
         press(a) { it == "+1 h" }
         val now = System.currentTimeMillis()
         assertTrue(Reminders.snoozes(app)["a"]!! in now + 59 * 60_000..now + 60 * 60_000)
@@ -92,6 +98,17 @@ class ScreensTest {
         assertTrue(shadowOf(app).broadcastIntents.none { it.action == Reminders.DONE }) // only once unlocked
         a.findViewById<Button>(R.id.alarm_snooze).performClick()
         assertEquals(Reminders.SNOOZE, shadowOf(app).broadcastIntents.last().action)
+        a.findViewById<Button>(R.id.alarm_hour).performClick() // without unlocking too
+        assertEquals(Reminders.SNOOZE_HOUR, shadowOf(app).broadcastIntents.last().action)
+    }
+
+    @Test fun alarmScreenButtons() {
+        val i = Intent(app, AlarmActivity::class.java).putExtra(Reminders.EXTRA_ID, "a").putExtra("title", "Pain").putExtra("task", true)
+        val a = Robolectric.buildActivity(AlarmActivity::class.java, i).setup().get()
+        assertEquals(listOf("Done", "+10 min", "+1 h", "Later…", "Stop"), buttons(a).filter { it.visibility == View.VISIBLE }.map { it.text.toString() })
+        prefs.edit().putString(SETTINGS_KEY, """{"snooze":60}""").commit()
+        val b = Robolectric.buildActivity(AlarmActivity::class.java, i).setup().get()
+        assertEquals(listOf("Done", "+60 min", "Later…", "Stop"), buttons(b).filter { it.visibility == View.VISIBLE }.map { it.text.toString() }) // no twin
     }
 
     @Test fun widgetListsTasksThenEventsAndOnlyCountsWhenPrivate() {

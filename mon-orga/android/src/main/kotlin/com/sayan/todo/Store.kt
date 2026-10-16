@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.net.Uri
+import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import org.json.JSONArray
@@ -505,7 +506,11 @@ object Backup {
 
 // Android's Auto Backup goes through this agent: the normal full backup, or nothing at all when Settings.googleBackup is off.
 class GoogleBackupAgent : BackupAgent() {
-    override fun onFullBackup(data: FullBackupDataOutput) { if (settings(prefs()).googleBackup) super.onFullBackup(data) }
+    // Off for the cloud when asked (or with the lock), but a direct transfer to a new phone (cable or Wi-Fi) still carries the data.
+    override fun onFullBackup(data: FullBackupDataOutput) {
+        val toNewPhone = Build.VERSION.SDK_INT >= 28 && data.transportFlags and BackupAgent.FLAG_DEVICE_TO_DEVICE_TRANSFER != 0
+        if (settings(prefs()).googleBackup || toNewPhone) super.onFullBackup(data)
+    }
     // Key/value backup: never used (android:fullBackupOnly).
     override fun onBackup(oldState: ParcelFileDescriptor?, data: BackupDataOutput?, newState: ParcelFileDescriptor?) = Unit
     override fun onRestore(data: BackupDataInput?, appVersionCode: Int, newState: ParcelFileDescriptor?) = Unit

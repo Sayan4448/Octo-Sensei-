@@ -6,9 +6,11 @@ import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Build
 import android.view.WindowManager
+import androidx.core.content.IntentCompat
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -17,6 +19,7 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
+import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 class MainActivityTest {
@@ -29,7 +32,7 @@ class MainActivityTest {
         val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
         assertEquals(MainActivity.START, shadowOf(activity.web).lastLoadedUrl)
         val call = bridgeOf(activity)
-        assertEquals("5.1.0", JSONObject(call("info", arrayOf()) as String).getString("version"))
+        assertEquals("5.1.1", JSONObject(call("info", arrayOf()) as String).getString("version"))
         val merged = JSONObject(call("save", arrayOf("""{"tasks":[{"id":"a","text":"Pain","updatedAt":5}]}""")) as String)
         assertEquals("Pain", items(merged, "tasks").single().getString("text"))
         assertEquals("Pain", items(JSONObject(call("load", arrayOf()) as String), "tasks").single().getString("text"))
@@ -56,6 +59,24 @@ class MainActivityTest {
         call("theme", arrayOf(true))
         shadowOf(android.os.Looper.getMainLooper()).idle()
         assertEquals(0xFF141218.toInt(), (activity.window.decorView.background as ColorDrawable).color)
+    }
+
+    @Test fun sharesAPictureMadeByThePage() {
+        val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        val call = bridgeOf(activity)
+        assertTrue(JSONObject(call("info", arrayOf()) as String).getBoolean("shareImage"))
+        assertEquals(true, call("shareImage", arrayOf("data:image/png;base64,AQID", "Mes progrès")))
+        val chooser = shadowOf(activity).nextStartedActivity
+        assertEquals(Intent.ACTION_CHOOSER, chooser.action)
+        val send = IntentCompat.getParcelableExtra(chooser, Intent.EXTRA_INTENT, Intent::class.java)!!
+        assertEquals(listOf(Intent.ACTION_SEND, "image/png"), listOf(send.action, send.type))
+        assertTrue(send.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)
+        val uri = IntentCompat.getParcelableExtra(send, Intent.EXTRA_STREAM, Uri::class.java)!!
+        assertEquals("${activity.packageName}.files", uri.authority)
+        assertEquals(listOf<Byte>(1, 2, 3), File(activity.cacheDir, "share/progress.png").readBytes().toList())
+        assertEquals(true, call("shareImage", arrayOf("data:image/jpeg;base64,/9j/", "")))
+        for (bad in listOf("data:text/plain;base64,AQID", "data:image/png;base64,***", "data:image/png;base64,", "AQID")) assertEquals(bad, false, call("shareImage", arrayOf(bad, "")))
+        assertFalse(call("shareImage", arrayOf("data:image/png;base64," + "AAAA".repeat((8 shl 20) / 3 + 1), "")) as Boolean) // over 8 MB
     }
 
     @Test fun calendarFilesPhotosAndVoiceNotesBecomeActions() {

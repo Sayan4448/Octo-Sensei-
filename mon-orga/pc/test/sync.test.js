@@ -34,6 +34,8 @@ test('sync v2: encrypted with a key from the code, the same bytes as Android', a
     assert.deepEqual(back.notes.map(n => [n.id, n.text]), [['n', 'Courses : lait'], ['n-c200', 'Courses : pain']]) // both texts kept
     assert.ok(p.calls.includes('/api/v2/sync') && !p.calls.includes('/api/sync')) // the code never travelled
     await assert.rejects(phone.state(p.address, '000000'), e => e.code === 'badCode')
+    p.skew = 10 * 60000 // the PC's clock 10 min behind the phone's: the PC dates its request on the phone's time
+    assert.equal((await phone.state(p.address, '123456')).notes.length, 2)
     p.old = true // a phone still on 5.1.0
     assert.equal((await phone.state(p.address, '123456')).notes.length, 2)
   } finally { p.server.close() }

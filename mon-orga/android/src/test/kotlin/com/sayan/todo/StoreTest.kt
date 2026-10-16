@@ -70,12 +70,55 @@ class StoreTest {
 
     @Test fun mergeKeepsNewestAndUnknownFields() {
         val a = JSONObject("""{"tasks":[{"id":"x","text":"old","updatedAt":1},{"id":"y","text":"keep","updatedAt":5}],"history":[1,"2:x"]}""")
-        val b = JSONObject("""{"tasks":[{"id":"x","text":"new","updatedAt":2,"color":"blue"},{"id":"y","deleted":true,"updatedAt":4}],"notes":[{"id":"n","text":"hi","updatedAt":1,"images":["data:x"]}],"history":["2:x",3]}""")
+        val b = JSONObject("""{"tasks":[{"id":"x","text":"new","updatedAt":2,"color":"blue","prio":3},{"id":"y","deleted":true,"updatedAt":4}],"notes":[{"id":"n","text":"hi","updatedAt":1,"images":["data:x"],"conflictOf":"m"}],"history":["2:x",3]}""")
         val m = merge(a, b)
         assertEquals(listOf("new", "keep"), items(m, "tasks").map { it.getString("text") })
         assertEquals("blue", items(m, "tasks")[0].getString("color"))
+        assertEquals(3, items(m, "tasks")[0].getInt("prio"))
         assertEquals("data:x", items(m, "notes")[0].getJSONArray("images").getString(0))
+        assertEquals("m", items(m, "notes")[0].getString("conflictOf"))
         assertEquals(listOf("1", "2:x", "3"), m.getJSONArray("history").strings())
+    }
+
+    // R5: [local, remote, since, [[id, text] of the merged notes, in order]], the shape of fixtures.json's "merge".
+    private fun mergeCase(c: JSONArray) {
+        val m = merge(c.getJSONObject(0), c.getJSONObject(1), c.getLong(2))
+        val want = c.getJSONArray(3).let { w -> (0 until w.length()).map { w.getJSONArray(it).let { p -> p.getString(0) to p.getString(1) } } }
+        assertEquals(c.toString(), want, items(m, "notes").map { it.getString("id") to it.optString("text") })
+    }
+
+    @Test fun sharedMergeCases() {
+        val cases = fixtures.getJSONArray("merge")
+        assertTrue(cases.length() > 0)
+        for (i in 0 until cases.length()) mergeCase(cases.getJSONArray(i))
+    }
+
+    @Test fun aNoteEditedOnBothSidesKeepsBothTexts() {
+        val cases = JSONArray("""[
+            [{"notes":[{"id":"n","text":"phone","updatedAt":200}]}, {"notes":[{"id":"n","text":"pc","updatedAt":300}]}, 100, [["n","pc"],["n-c200","phone"]]],
+            [{"notes":[{"id":"n","text":"phone","updatedAt":200}]}, {"notes":[{"id":"n","text":"pc","updatedAt":300}]}, 0, [["n","pc"]]],
+            [{"notes":[{"id":"n","text":"phone","updatedAt":50}]}, {"notes":[{"id":"n","text":"pc","updatedAt":300}]}, 100, [["n","pc"]]],
+            [{"notes":[{"id":"n","text":"same","updatedAt":200}]}, {"notes":[{"id":"n","text":"same","updatedAt":300}]}, 100, [["n","same"]]],
+            [{"notes":[{"id":"n","text":"phone","updatedAt":200,"deleted":true}]}, {"notes":[{"id":"n","text":"pc","updatedAt":300}]}, 100, [["n","pc"]]],
+            [{"notes":[{"id":"n","text":"a","updatedAt":200}]}, {"notes":[{"id":"n","text":"b","updatedAt":200}]}, 100, [["n","a"],["n-c200","b"]]],
+            [{"notes":[{"id":"x","text":"x","updatedAt":1},{"id":"n","text":"new","updatedAt":400},{"id":"y","text":"y","updatedAt":1}]},
+             {"notes":[{"id":"n","text":"old","updatedAt":300}]}, 100, [["x","x"],["n","new"],["n-c300","old"],["y","y"]]],
+            [{"notes":[{"id":"n","text":"phone","updatedAt":200}]}, {"notes":[{"id":"n","text":"pc","updatedAt":300},{"id":"n-c200","text":"phone","updatedAt":200}]}, 100,
+             [["n","pc"],["n-c200","phone"]]]
+        ]""")
+        for (i in 0 until cases.length()) mergeCase(cases.getJSONArray(i))
+        val local = JSONObject("""{"notes":[{"id":"n","text":"phone","createdAt":1,"updatedAt":200,"pinned":true,"images":["data:x"]}],"tasks":[{"id":"t","text":"a","updatedAt":200}]}""")
+        val m = merge(local, JSONObject("""{"notes":[{"id":"n","text":"pc","updatedAt":300}],"tasks":[{"id":"t","text":"b","updatedAt":300}]}"""), 100)
+        val copy = items(m, "notes")[1]
+        assertEquals(listOf("n", "false", "200", "200", "data:x"), listOf(copy.getString("conflictOf"), copy.getString("pinned"), copy.getString("createdAt"), copy.getString("updatedAt"), copy.getJSONArray("images").getString(0)))
+        assertEquals(listOf("b"), items(m, "tasks").map { it.getString("text") }) // notes only
+    }
+
+    @Test fun googleBackupIsOffOnRequestAndWithTheLock() {
+        assertTrue(Settings(JSONObject()).googleBackup)
+        assertFalse(Settings(JSONObject("""{"googleBackup":false}""")).googleBackup)
+        assertFalse(Settings(JSONObject("""{"googleBackup":true,"lock":true}""")).googleBackup)
+        assertEquals(GoogleBackupAgent::class.java.name, RuntimeEnvironment.getApplication().applicationInfo.backupAgentName)
     }
 
     @Test fun storageMigratesVersion4AndPurgesOldTombstones() {

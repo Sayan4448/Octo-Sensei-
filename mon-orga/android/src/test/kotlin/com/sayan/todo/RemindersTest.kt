@@ -52,7 +52,7 @@ class RemindersTest {
         Reminders.tick(app, at("2026-10-16T18:00"))
         val n = notes.single()
         assertEquals("Tâche a", n.extras.getString(Notification.EXTRA_TITLE))
-        assertEquals(listOf("Done", "+10 min", "Later…"), n.actions.map { it.title.toString() })
+        assertEquals(listOf("Done", "+1 h", "Later…"), n.actions.map { it.title.toString() }) // a quiet task: +1 h, not +N min
         assertEquals(Reminders.CH_REMINDERS, n.channelId)
     }
 
@@ -73,7 +73,7 @@ class RemindersTest {
         val n = notes.single()
         assertEquals("Dentiste", n.extras.getString(Notification.EXTRA_TITLE))
         assertTrue(n.extras.getString(Notification.EXTRA_TEXT)!!.contains("Lyon"))
-        assertEquals(listOf("OK", "+10 min", "Directions"), n.actions.map { it.title.toString() })
+        assertEquals(listOf("OK", "Directions", "Later…"), n.actions.map { it.title.toString() })
     }
 
     @Test fun doneMovesARepeatingTaskAndCountsIt() {
@@ -157,6 +157,30 @@ class RemindersTest {
         assertEquals(listOf("Done", "Directions", "Later…"), note("Tâche g").actions.map { it.title.toString() })
     }
 
+    @Test fun buttonsFollowWhatTheItemHas() {
+        store(task("both", "2026-10-16T18:00", "text" to "Garage 06 12 34 56 78", "place" to "Garage Martin"), task("loud", "2026-10-16T18:00", "loud" to true),
+            events = listOf(event("call", "2026-10-16", "18:00", "text" to "Rdv Paul 06 12 34 56 78"), event("plain", "2026-10-16", "18:00")))
+        prefs.edit().putLong("lastCheck", at("2026-10-16T17:59")).commit()
+        Reminders.tick(app, at("2026-10-16T18:00"))
+        fun labels(title: String) = note(title).actions.map { it.title.toString() }
+        assertEquals(listOf("Done", "Call", "Directions"), labels("Garage 06 12 34 56 78"))
+        assertEquals(listOf("Done", "+10 min", "Later…"), labels("Tâche loud"))
+        assertEquals(listOf("OK", "Call", "Later…"), labels("Rdv Paul 06 12 34 56 78")) // events get Call too
+        assertEquals(listOf("OK", "+10 min", "Later…"), labels("Rdv plain"))
+    }
+
+    @Test fun plusOneHourSnoozesAndStartsTheNagOver() {
+        prefs.edit().putString(SETTINGS_KEY, """{"nag":5,"nagTimes":2}""").putLong("lastCheck", at("2026-10-16T17:59")).commit()
+        store(task("a", "2026-10-16T18:00"))
+        Reminders.tick(app, at("2026-10-16T18:00"))
+        assertTrue(JSONObject(prefs.getString("nags", "{}")!!).has("a"))
+        val before = System.currentTimeMillis()
+        press(note("Tâche a"), "+1 h")
+        assertTrue(Reminders.snoozes(app)["a"]!! in before + 3_600_000..System.currentTimeMillis() + 3_600_000)
+        assertFalse(JSONObject(prefs.getString("nags", "{}")!!).has("a"))
+        assertTrue(notes.isEmpty())
+    }
+
     @Test fun nagRemindsEventsTooAndASnoozeStartsItOver() {
         prefs.edit().putString(SETTINGS_KEY, """{"nag":5,"nagTimes":1}""").putLong("lastCheck", at("2026-10-16T17:59")).commit()
         store(events = listOf(event("e", "2026-10-16", "18:00")))
@@ -194,6 +218,7 @@ class RemindersTest {
         Reminders.tick(app, at("2026-10-16T18:00"))
         assertEquals(Reminders.CH_ALARM, notes.single().channelId)
         assertNotNull(notes.single().fullScreenIntent)
+        assertEquals(listOf("Done", "+10 min", "Later…"), notes.single().actions.map { it.title.toString() })
         prefs.edit().putString(SETTINGS_KEY, "{}").commit()
         store(events = listOf(event("e", "2026-10-16", "19:00", "important" to true)))
         Reminders.tick(app, at("2026-10-16T19:00"))
