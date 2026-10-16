@@ -71,16 +71,19 @@ object Reminders {
         else am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
 
     // After an edit in the app: what was due in the last minutes still rings, a task just dated in the past does not.
+    // An item changed since it rang (ticked, moved, on the phone or the PC) was answered there: no re-ring, notification gone.
     fun edited(ctx: Context, now: Long = System.currentTimeMillis()) {
         val prefs = ctx.prefs()
         prefs.edit().putLong("lastCheck", maxOf(prefs.getLong("lastCheck", now), now - 5 * 60_000L)).apply()
+        val doc = loadDoc(prefs)
+        for ((id, version) in longs(ctx, "rang")) if ((findItem(doc, id)?.optLong("updatedAt") ?: Long.MAX_VALUE) > version) answered(ctx, id)
         schedule(ctx, now)
     }
 
     fun tick(ctx: Context, now: Long) {
         val prefs = ctx.prefs(); val s = settings(prefs)
         val from = maxOf(prefs.getLong("lastCheck", now), now - MISSED_WINDOW)
-        val doc = loadDoc(prefs); val snoozes = snoozes(ctx); val nags = longs(ctx, "nags"); val first = longs(ctx, "nagFirst")
+        val doc = loadDoc(prefs); val snoozes = snoozes(ctx); val nags = longs(ctx, "nags"); val first = longs(ctx, "nagFirst"); val rang = longs(ctx, "rang")
         val due = alarms(doc, Local(snoozes, s.summary, s.focusUntil, s.focusTitle), from, now)
         prefs.edit().putLong("lastCheck", now).apply()
         snoozes.entries.removeAll { it.value <= now }
@@ -93,6 +96,7 @@ object Reminders {
         if (together.isNotEmpty()) showGroup(ctx, together, s, now)
         if (late.size > 3) showMissed(ctx, late, doc, s, now) else late.forEach { show(ctx, it, doc, s, now) }
         for (a in rings) { // "remind me again until I answer"; a manual snooze starts the count again
+            rang[a.id] = findItem(doc, a.id)?.optLong("updatedAt") ?: 0L
             val count = if (a.snoozed) nags[a.id]?.plus(1) ?: 0L else 0L
             if (count == 0L) first[a.id] = now
             val at = nagAt(s.nag, s.nagTimes, count.toInt(), first[a.id] ?: now, now)
@@ -100,7 +104,7 @@ object Reminders {
         }
         if (due.any { it.kind == "summary" }) showSummary(ctx, doc, s, now)
         due.firstOrNull { it.kind == "focus" }?.let { showFocusDone(ctx, it.title, s, now) }
-        putLongs(ctx, "snoozes", snoozes); putLongs(ctx, "nags", nags); putLongs(ctx, "nagFirst", first)
+        putLongs(ctx, "snoozes", snoozes); putLongs(ctx, "nags", nags); putLongs(ctx, "nagFirst", first); putLongs(ctx, "rang", rang)
         schedule(ctx, now)
         Widget.update(ctx)
         Backup.later(ctx, now)
@@ -111,7 +115,7 @@ object Reminders {
     // The item was answered: no more snooze or nag, notification gone.
     fun answered(ctx: Context, id: String) {
         val m = snoozes(ctx); m.remove(id); putLongs(ctx, "snoozes", m)
-        forgetNag(ctx, id); cancel(ctx, id); schedule(ctx)
+        forgetNag(ctx, id); putLongs(ctx, "rang", longs(ctx, "rang").apply { remove(id) }); cancel(ctx, id); schedule(ctx)
     }
 
     private fun forgetNag(ctx: Context, id: String) = listOf("nags", "nagFirst").forEach { k -> putLongs(ctx, k, longs(ctx, k).apply { remove(id) }) }

@@ -9,7 +9,6 @@
     <string name="ch_pc">PC version</string>
     <string name="act_done">Done</string>
     <string name="act_snooze">+%d min</string>
-    <string name="act_tomorrow">Tomorrow</string>
     <string name="act_stop">Stop</string>
     <string name="act_ok">OK</string>
     <string name="act_snooze_h" translatable="false">+%d h</string>

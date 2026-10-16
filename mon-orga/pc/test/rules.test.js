@@ -28,6 +28,13 @@ test('nagTimes 0 (until answered): 3 quick re-rings, then hourly, never past 24 
   assert.deepEqual(nags, {})
 })
 
+test('an item ticked or changed after it rang is answered: no more re-rings', () => {
+  const local = { snoozes: { a: 9, b: 9, c: 9 }, nags: { a: { n: 0, first: 100 }, b: { n: 1, first: 100 }, c: { n: 0, first: 100 } } }
+  const items = { a: { id: 'a', updatedAt: 50 }, b: { id: 'b', updatedAt: 150 }, c: { id: 'c', done: true, updatedAt: 50 } }
+  rules.answered(local, id => items[id])
+  assert.deepEqual([Object.keys(local.nags), Object.keys(local.snoozes)], [['a'], ['a']])
+})
+
 test('a fresh ring of the same item starts the count over, even from a 5.0 counter', () => {
   const local = { snoozes: {}, nags: { x: { n: 2, first: 500 } } }
   rules.nag([{ id: 'x', kind: 'task' }], local, {}, 1000)

@@ -19,6 +19,14 @@ function nag(rings, local, settings, now) {
   })
 }
 
+// An item changed after it rang (ticked, moved or edited here or on the phone) counts as answered: no more re-rings.
+function answered(local, find) {
+  Object.keys(local.nags).forEach(id => {
+    const it = find(id); const n = local.nags[id]
+    if (!it || it.deleted || it.done || (n && n.first && (it.updatedAt || 0) > n.first)) { delete local.nags[id]; delete local.snoozes[id] }
+  })
+}
+
 // Quiet hours "22:00" to "07:00" may wrap midnight; an empty end means none.
 const quiet = (from, to, hhmm) => !!from && !!to && (from <= to ? hhmm >= from && hhmm < to : hhmm >= from || hhmm < to)
 
@@ -31,4 +39,4 @@ function backup(folder, day, data) {
   fs.readdirSync(folder).filter(f => BACKUP.test(f)).sort().reverse().slice(14).forEach(f => fs.unlinkSync(path.join(folder, f)))
 }
 
-module.exports = { nag, quiet, backup }
+module.exports = { nag, answered, quiet, backup }

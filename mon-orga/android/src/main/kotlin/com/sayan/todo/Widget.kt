@@ -1,5 +1,6 @@
 package com.sayan.todo
 
+import android.annotation.SuppressLint
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
@@ -85,9 +86,10 @@ class WidgetService : RemoteViewsService() {
 
 // Quick Settings tile "New task": the app opens on the new task's field, keyboard up.
 class AddTaskTile : TileService() {
+    @SuppressLint("StartActivityAndCollapseDeprecated") // the Intent version only before Android 14, where it is the only one
     override fun onClick() = unlockAndRun {
         val i = Intent(this, MainActivity::class.java).setAction(MainActivity.ADD_TASK).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         if (Build.VERSION.SDK_INT >= 34) startActivityAndCollapse(PendingIntent.getActivity(this, 43, i, PendingIntent.FLAG_IMMUTABLE))
-        else @Suppress("DEPRECATION") startActivityAndCollapse(i)
+        else startActivityAndCollapse(i)
     }
 }

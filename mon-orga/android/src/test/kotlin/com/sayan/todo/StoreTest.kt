@@ -3,6 +3,7 @@ package com.sayan.todo
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
+import android.provider.CalendarContract
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -14,6 +15,7 @@ import org.robolectric.RuntimeEnvironment
 import java.io.File
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.ZoneOffset
 
 // The cases in web/test/fixtures.json are also run by the interface's tests: phone and PC must agree on every date.
 @RunWith(RobolectricTestRunner::class)
@@ -106,6 +108,105 @@ class StoreTest {
         val weekly = JSONObject().put("due", "2026-10-16").put("repeat", "weekly").put("steps", JSONArray().put(JSONObject().put("text", "a").put("done", true)))
         completeTask(weekly, now)
         assertFalse(weekly.getJSONArray("steps").getJSONObject(0).getBoolean("done"))
+    }
+
+    // The tests run in Los Angeles: 2027-03-14 at 02:00 jumps to 03:00 there.
+    @Test fun aDailyTaskKeepsItsTimeAcrossTheClockChange() {
+        val t = JSONObject().put("due", "2027-03-13T02:30").put("repeat", "daily")
+        completeTask(t, at("2027-03-13T02:31"))
+        assertEquals("2027-03-14T02:30", t.getString("due")) // 02:30 does not exist that night: it rings at 03:30, and stays 02:30
+        completeTask(t, at("2027-03-14T03:31"))
+        assertEquals("2027-03-15T02:30", t.getString("due"))
+        val hours = JSONObject().put("due", "2027-03-14T00:00").put("repeat", "hours:4")
+        completeTask(hours, at("2027-03-14T00:30"))
+        assertEquals("2027-03-14T05:00", hours.getString("due")) // every 4 real hours
+    }
+
+    @Test fun postponingKeepsAWeeklySeriesOnItsWeekday() {
+        val now = at("2026-10-16T10:00") // a Friday
+        val weekly = JSONObject().put("due", "2026-10-16T09:30").put("repeat", "weekly")
+        postponeTask(weekly, now)
+        assertEquals("2026-10-17T09:30", weekly.getString("due"))
+        assertEquals("weekly:5", weekly.getString("repeat"))
+        val days = JSONObject().put("due", "2026-10-20").put("repeat", "weekly:1,3"); postponeTask(days, now, 3)
+        assertEquals("2026-10-23", days.getString("due"))
+        assertEquals("weekly:1,3", days.getString("repeat"))
+        val morning = JSONObject().put("due", "2026-10-16T18:00"); tomorrowMorning(morning, now)
+        assertEquals("2026-10-17T09:00", morning.getString("due"))
+        val allDay = JSONObject().put("due", "2026-10-12"); tomorrowMorning(allDay, now)
+        assertEquals("2026-10-17", allDay.getString("due"))
+    }
+
+    @Test fun afterRepeatsCountFromTheTickAndDatesIgnoreTheSuffix() {
+        val start = LocalDate.parse("2026-10-16"); val from = LocalDate.parse("2026-10-19")
+        assertEquals(nextDay(start, "days:2", from, null, emptySet()), nextDay(start, "days:2:after", from, null, emptySet()))
+        assertEquals(nextOccurrence("2026-10-16T08:00", "hours:4", null, emptySet(), at("2026-10-16T09:00")),
+            nextOccurrence("2026-10-16T08:00", "hours:4:after", null, emptySet(), at("2026-10-16T09:00")))
+        val ended = JSONObject().put("due", "2026-10-16T08:00").put("repeat", "hours:4:after").put("until", "2026-10-16")
+        completeTask(ended, at("2026-10-16T22:00"))
+        assertTrue(ended.getBoolean("done"))
+        val weeks = JSONObject().put("due", "2026-10-16").put("repeat", "weeks:2:after")
+        completeTask(weeks, at("2026-10-18T10:00"))
+        assertEquals("2026-11-01", weeks.getString("due"))
+    }
+
+    @Test fun nagRingsAgainUntilAnswered() {
+        val t0 = at("2026-10-16T18:00")
+        assertEquals(t0 + 600_000, nagAt(10, 3, 0, t0, t0))
+        assertNull(nagAt(10, 3, 3, t0, t0 + 1_800_000))
+        assertNull(nagAt(0, 3, 0, t0, t0))
+        // 0 times = until answered: three quick ones, then hourly, for 24 hours at most.
+        var now = t0; var count = 0
+        while (true) { now = nagAt(10, 0, count, t0, now) ?: break; count++ }
+        assertEquals(26, count)
+        assertEquals(t0 + (30 + 23 * 60) * 60_000L, now)
+        assertEquals(10, Settings(JSONObject()).nag)
+        assertEquals(0, Settings(JSONObject("""{"nagTimes":0}""")).nagTimes)
+    }
+
+    @Test fun quietHoursMayWrapMidnight() {
+        val night = Settings(JSONObject("""{"quietFrom":"22:00","quietTo":"07:00"}"""))
+        assertTrue(night.quiet(at("2026-10-16T23:00")))
+        assertTrue(night.quiet(at("2026-10-17T06:59")))
+        assertFalse(night.quiet(at("2026-10-17T07:00")))
+        assertFalse(night.quiet(at("2026-10-16T12:00")))
+        assertTrue(Settings(JSONObject("""{"quietFrom":"13:00","quietTo":"14:00"}""")).quiet(at("2026-10-16T13:30")))
+        assertFalse(Settings(JSONObject("""{"quietFrom":"","quietTo":"07:00"}""")).quiet(at("2026-10-16T03:00")))
+    }
+
+    @Test fun phoneNumbersInATask() {
+        assertEquals("0612345678", phoneIn("Appeler Paul 06 12 34 56 78"))
+        assertEquals("+33612345678", phoneIn("Rappeler +33 6 12 34 56 78 demain"))
+        assertNull(phoneIn("Réunion 2026-10-16 14:00"))
+        assertNull(phoneIn("Voir https://example.com/0612345678"))
+        assertNull(phoneIn("Acheter 3 pains"))
+    }
+
+    @Test fun historyKeepsUndoneTicks() {
+        val m = merge(JSONObject("""{"history":["5:a","9:a:x"]}"""), JSONObject("""{"history":["7:b","9:a:x"]}"""))
+        assertEquals(listOf("5:a", "7:b", "9:a:x"), m.getJSONArray("history").strings())
+        assertEquals(9L, historyTime("9:a:x"))
+    }
+
+    @Test fun phoneCalendarRowsLandOnTheirDays() {
+        val from = LocalDate.parse("2026-10-19"); val to = LocalDate.parse("2026-10-25")
+        fun utc(d: String) = LocalDate.parse(d).atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli()
+        val allDay = calendarEvent(7, utc("2026-10-20"), utc("2026-10-23"), true, "Salon", null, "Perso", 0xFF33B679.toInt(), from, to)!!
+        assertEquals(listOf("cal-7-${utc("2026-10-20")}", "2026-10-20", "2026-10-22", "#33b679"), listOf(allDay.getString("id"), allDay.getString("day"), allDay.getString("endDay"), allDay.getString("color")))
+        assertTrue(allDay.isNull("time"))
+        val timed = calendarEvent(8, at("2026-10-21T14:00"), at("2026-10-21T15:30"), false, "Dentiste", "Lyon", "Perso", 0, from, to)!!
+        assertEquals(listOf("2026-10-21", "14:00", "2026-10-21", "15:30", "Lyon"), listOf("day", "time", "endDay", "end", "place").map { timed.getString(it) })
+        assertNull(calendarEvent(9, utc("2026-10-26"), utc("2026-10-27"), true, "Après", null, null, 0, from, to)) // 25th 17:00 here, but the 26th
+        val insert = calendarInsert(JSONObject("""{"text":"Salon","day":"2026-10-20","time":null,"endDay":"2026-10-22","place":"Lyon","details":""}"""))
+        assertTrue(insert.getBooleanExtra(CalendarContract.EXTRA_EVENT_ALL_DAY, false))
+        assertEquals(at("2026-10-23T00:00"), insert.getLongExtra(CalendarContract.EXTRA_EVENT_END_TIME, 0))
+        val hour = calendarInsert(JSONObject("""{"text":"Dentiste","day":"2026-10-21","time":"14:00","endDay":null,"end":null,"place":"","details":""}"""))
+        assertEquals(at("2026-10-21T15:00"), hour.getLongExtra(CalendarContract.EXTRA_EVENT_END_TIME, 0))
+    }
+
+    @Test fun backupsKeepTheFourteenNewest() {
+        val names = (1..20).map { "mon-orga-2026-10-%02d.json".format(it) } + "mon-orga-export.json" + "notes.json"
+        assertEquals((1..6).map { "mon-orga-2026-10-%02d.json".format(it) }.reversed(), Backup.oldBackups(names))
     }
 
     @Test fun todayListsLateTasksFirstThenTheDay() {

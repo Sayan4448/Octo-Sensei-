@@ -4,6 +4,8 @@ import fi.iki.elonen.NanoHTTPD
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -27,15 +29,19 @@ class SyncTest {
 
     @After fun stop() = server.stop()
 
-    private fun call(path: String, body: String? = null): Pair<Int, String> {
-        val c = URL("http://127.0.0.1:$port$path").openConnection() as HttpURLConnection
+    private fun call(path: String, body: String? = null, p: Int = port): Pair<Int, String> = open(path, body, p).let { c ->
+        val code = c.responseCode
+        code to ((if (code < 400) c.inputStream else c.errorStream)?.bufferedReader()?.readText().orEmpty())
+    }
+
+    private fun open(path: String, body: String? = null, p: Int = port): HttpURLConnection {
+        val c = URL("http://127.0.0.1:$p$path").openConnection() as HttpURLConnection
         if (body != null) {
             c.requestMethod = "POST"; c.doOutput = true
             c.setRequestProperty("Content-Type", "application/json; charset=utf-8") // what the PC app sends
             c.outputStream.use { it.write(body.toByteArray()) }
         }
-        val code = c.responseCode
-        return code to ((if (code < 400) c.inputStream else c.errorStream)?.bufferedReader()?.readText().orEmpty())
+        return c
     }
 
     @Test fun pingIsOpenButDataNeedsTheCode() {
@@ -64,5 +70,37 @@ class SyncTest {
     @Test fun tooManyWrongCodesBlockForAMinute() {
         repeat(10) { call("/api/state?k=111111") }
         assertEquals(401, call("/api/state?k=123456").first)
+    }
+
+    @Test fun pingNamesThePhoneOnlyWithTheCodeAndThereIsNoCors() {
+        val open = JSONObject(call("/api/ping").second)
+        assertTrue(open.getBoolean("ok"))
+        assertFalse(open.has("name"))
+        assertTrue(JSONObject(call("/api/ping?k=123456").second).has("name"))
+        assertNull(open("/api/state?k=123456").getHeaderField("Access-Control-Allow-Origin"))
+    }
+
+    @Test fun eachFurtherTenWrongCodesDoubleTheWait() {
+        var now = System.currentTimeMillis()
+        server.clock = { now }
+        repeat(10) { call("/api/state?k=111111") }
+        now += 61_000 // the first block lasts a minute, then 10 more wrong ones…
+        repeat(10) { call("/api/state?k=111111") }
+        now += 61_000
+        assertEquals(401, call("/api/state?k=123456").first) // …block for two
+        now += 60_000
+        assertEquals(200, call("/api/state?k=123456").first)
+    }
+
+    @Test fun aNewCodeStopsTheOldOneAtOnce() {
+        app.prefs().edit().putString("syncCode", "222222").commit()
+        val p = ServerSocket(0).use { it.localPort }
+        val live = SyncServer(app, port = p).also { it.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false) }
+        try {
+            assertEquals(200, call("/api/state?k=222222", p = p).first)
+            val fresh = newSyncCode(app)
+            assertEquals(401, call("/api/state?k=222222", p = p).first)
+            assertEquals(200, call("/api/state?k=$fresh", p = p).first)
+        } finally { live.stop() }
     }
 }

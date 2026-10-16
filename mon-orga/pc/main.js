@@ -143,6 +143,7 @@ function describe(a, item) {
 }
 function tick() {
   const now = Date.now()
+  rules.answered(local, id => Store.find(doc, id)) // ticked or changed since it rang: answered
   const due = Store.alarms(doc, localState(), Math.max(local.lastCheck, now - MISSED_WINDOW), now)
   local.lastCheck = now
   Object.keys(local.snoozes).forEach(id => { if (local.snoozes[id] <= now) delete local.snoozes[id] })
