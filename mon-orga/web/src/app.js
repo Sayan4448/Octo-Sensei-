@@ -1680,9 +1680,9 @@
     snack: el => { const a = snackActions[+el.dataset.i]; $('#snack').classList.remove('show'); if (a) a.run() },
   }
   function run(name, el, id) { const f = ACTS[name]; if (f) f(el || document.body, id) }
-  let press = null // long press on a task row
+  let press = null; let swallow = false // long press on a task row; the click its release makes is not a tap
   function onClick(e) {
-    if (press && press.fired) { press = null; e.preventDefault(); return } // the long press already answered
+    if (swallow) { swallow = false; e.preventDefault(); return }
     const el = e.target.closest('[data-act]'); if (!el) return
     if (el.tagName === 'A') e.preventDefault()
     if (el.tagName === 'INPUT' && el.type === 'checkbox' && el.dataset.act !== 'sync-toggle') return
@@ -1799,11 +1799,16 @@
     })
     const rowOf = e => { const b = e.target.closest && e.target.closest('.row.task .body'); return b ? b.closest('[data-id]').dataset.id : null }
     document.addEventListener('pointerdown', e => {
+      swallow = false
       const id = rowOf(e); if (!id || e.button > 0) return
       press = { id: id, x: e.clientX, y: e.clientY, fired: false }
       press.timer = setTimeout(() => { if (press && press.id === id) { press.fired = true; if (H.haptic) H.haptic(); quickMenu(id) } }, 550)
     })
-    const unpress = e => { if (press && !press.fired && (e.type !== 'pointermove' || Math.abs(e.clientX - press.x) + Math.abs(e.clientY - press.y) > 12)) { clearTimeout(press.timer); press = null } }
+    const unpress = e => {
+      if (!press) return
+      if (press.fired) { if (e.type === 'pointerup') swallow = true; if (e.type !== 'pointermove') press = null; return }
+      if (e.type !== 'pointermove' || Math.abs(e.clientX - press.x) + Math.abs(e.clientY - press.y) > 12) { clearTimeout(press.timer); press = null }
+    }
     ;['pointerup', 'pointercancel', 'pointermove'].forEach(t => document.addEventListener(t, unpress))
     document.addEventListener('contextmenu', e => { const id = rowOf(e); if (!id) return; e.preventDefault(); if (!(press && press.fired)) quickMenu(id) })
     let swipe = null // a swipe on the calendar changes the month (or the week)

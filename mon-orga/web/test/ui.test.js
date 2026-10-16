@@ -165,7 +165,15 @@ test('the 5.1 tools: long press, imports, repeats, backups', { skip: !playwright
       assert.equal(await page.$('.warn-banner'), null)
     })
     await t.test('long press on a task moves it in one gesture', async () => {
-      await page.click('.row.task:has-text("Piscine") .body', { button: 'right' })
+      const body = '.row.task:has-text("Piscine") .body'
+      await page.dispatchEvent(body, 'pointerdown', { button: 0, pointerType: 'touch', clientX: 100, clientY: 300 })
+      await page.waitForSelector('.menu-item') // after about half a second
+      await page.dispatchEvent(body, 'pointerup', { button: 0, pointerType: 'touch' })
+      await page.dispatchEvent('.scrim', 'click') // the click of the release does not close the menu
+      assert.ok(await page.$('.menu-item'))
+      await page.click('.dlg-actions button') // Annuler
+      assert.equal(await page.$('#sheet:not([hidden])'), null)
+      await page.click(body, { button: 'right' })
       await page.click('.menu-item:has-text("+2 jours")')
       assert.match(await page.textContent('.row.task:has-text("Piscine")'), /18:00/)
       assert.match(await page.textContent('.row.task:has-text("Piscine")'), /Dimanche|dim/i)
