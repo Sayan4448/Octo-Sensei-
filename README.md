@@ -47,6 +47,10 @@ Demande-lui directement :
 
 Pour être sûr que c'est lui, commence ton message par `@agent-octo-sensei` (ou tape `@` et choisis « octo-sensei (agent) »). Sinon, Claude le choisit en général tout seul pour les PR, la CI, les conflits, les revues, les issues et les releases.
 
+## Aussi dans ce dépôt : Mon Orga 📋
+
+[`mon-orga/`](mon-orga/) est l'app Android d'organisation de Sayan (tâches programmables avec rappels, notes, agenda), avec son propre [README](mon-orga/README.md).
+
 ## Contribuer
 
 1. Modifie l'agent sur une branche.

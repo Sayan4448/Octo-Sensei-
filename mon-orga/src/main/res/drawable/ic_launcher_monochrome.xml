@@ -1,0 +1,22 @@
+<!-- Themed-icon version (Android 13+ only uses alpha): the calendar page as strokes, so the check stays visible. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4"
+        android:pathData="M38,36h32a4,4 0,0 1,4 4v30a4,4 0,0 1,-4 4h-32a4,4 0,0 1,-4 -4v-30a4,4 0,0 1,4 -4zM34,46h40" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:pathData="M43,30v8M65,30v8" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M44,61l7,7l13,-14" />
+</vector>
