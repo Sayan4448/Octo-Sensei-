@@ -12,7 +12,7 @@ jobs:
   agents:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - run: python3 scripts/check_agents.py --self-test
