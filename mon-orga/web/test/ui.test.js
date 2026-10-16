@@ -267,9 +267,10 @@ test('5.1.1: settings from 5.0 and 5.1, call and directions, priorities typed, a
       const text = await page.textContent('.dlg')
       assert.match(text, /5\.1\.1[\s\S]*Nouveaux réglages par défaut/)
       assert.doesNotMatch(text, /tous les 3 mois/) // the 5.1 list was already seen
-      await page.click('.dlg-actions button:has-text("Appliquer aussi au rendez-vous déjà prévu")')
+      assert.ok(await page.$('.dlg .menu-item:has-text("Garder mes anciens réglages de rappel")')) // they may have been chosen on purpose
+      await page.click('.dlg .menu-item:has-text("Appliquer aussi au rendez-vous déjà prévu")')
       const s = await page.evaluate(() => JSON.parse(localStorage.getItem('mon-orga-settings')))
-      assert.deepEqual([s.remindEvent, s.nag, s.summary, s.news], [[60, 1440], 10, '08:00', 52])
+      assert.deepEqual([s.remindEvent, s.nag, s.summary, s.news, s.before511], [[60, 1440], 10, '08:00', 52, null])
       const remind = id => page.evaluate(id => JSON.parse(localStorage.getItem('mon-orga-doc')).events.find(e => e.id === id).remind, id)
       assert.deepEqual([await remind('o'), await remind('d')], [[60, 1440], [60]]) // only the old default changes
     })
@@ -322,6 +323,17 @@ test('5.1.1: settings from 5.0 and 5.1, call and directions, priorities typed, a
       await page.click('.row.task[data-id="g"] .body')
       await page.keyboard.press('Control+Enter')
       assert.equal(await page.$('#sheet:not([hidden])'), null)
+    })
+    await t.test('reminder settings chosen in 5.1 can be kept', async () => {
+      const c2 = await browser.newContext({ viewport: { width: 412, height: 860 }, locale: 'fr-FR', timezoneId: 'Europe/Paris' })
+      await c2.addInitScript(() => { if (!localStorage.getItem('mon-orga-settings')) localStorage.setItem('mon-orga-settings', JSON.stringify({ welcomed: true, news: 51, remindEvent: [15], nag: 0, summary: null })) })
+      const p2 = await c2.newPage()
+      await p2.clock.setFixedTime(NOW)
+      await p2.goto(url)
+      await p2.click('.dlg .menu-item:has-text("Garder mes anciens réglages de rappel")')
+      const s = await p2.evaluate(() => JSON.parse(localStorage.getItem('mon-orga-settings')))
+      assert.deepEqual([s.remindEvent, s.nag, s.summary, s.news], [[15], 0, null, 52])
+      await c2.close()
     })
     assert.deepEqual(errors, [])
   } finally {

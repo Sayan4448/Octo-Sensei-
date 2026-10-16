@@ -331,7 +331,7 @@
     const out = text.replace(/(^|\s)#([^\s#]{2,})/g, (m, sp, name) => { const l = !list && ls.find(x => S.fold(x) === S.fold(name)); if (!l) return m; list = l; return sp }).replace(/\s+/g, ' ').trim()
     return list && out ? { text: out, list: list } : { text: text, list: '' }
   }
-  const APPOINTMENT = /(^|[^A-Za-zÀ-ÿ])(rdv|rendez[- ]vous|dentiste|m[ée]decin|docteur|kin[ée]|ost[ée]o|coiffeur|r[ée]union|v[ée]t[ée]rinaire|chantier|intervention|d[ée]pannage|visite|consultation|meeting|appointment|dentist|doctor|vet)(?![A-Za-zÀ-ÿ])/i
+  const APPOINTMENT = /(^|[^A-Za-zÀ-ÿ])(rdv|rendez[- ]vous|dentiste|m[ée]decin|docteur|kin[ée]|ost[ée]o|coiffeur|r[ée]union|v[ée]t[ée]rinaire|chantier|intervention|d[ée]pannage|visite|consultation|cardio\w*|ophtalmo\w*|dermato\w*|gyn[ée]co\w*|p[ée]diatre|psy\w*|orthophoniste|radio|scanner|irm|[ée]chographie|prise de sang|analyses|labo|infirmi[eè]re|dr|meeting|appointment|dentist|doctor|vet)(?![A-Za-zÀ-ÿ])/i
   function addTasks(raw) {
     const lines = raw.split(/\n+/).map(s => s.trim()).filter(Boolean)
     if (!lines.length) return
@@ -1829,10 +1829,12 @@
   async function boot() {
     try { set = Object.assign({}, DEFAULTS, await H.loadSettings()) } catch (e) { /* defaults */ }
     const seen = set.welcomed ? set.news || 0 : -1 // the "what's new" already shown (-1: data from version 4)
-    if (seen >= 0 && seen < 52) { // from 5.0 or 5.1: the old defaults become the new ones (said in "what's new")
+    if (seen >= 0 && seen < 52 && !set.before511) { // from 5.0 or 5.1: the old defaults become the new ones ("what's new" says so and can put them back)
+      const before = { remindEvent: set.remindEvent, nag: set.nag, summary: set.summary }
       if (String(set.remindEvent) === '15') set.remindEvent = DEFAULTS.remindEvent.slice()
       if (set.nag === 0) set.nag = DEFAULTS.nag
       if (set.summary === null) set.summary = DEFAULTS.summary
+      if (set.remindEvent !== before.remindEvent || set.nag !== before.nag || set.summary !== before.summary) { set.before511 = before; saveSettings() } // saved now: the app may first open on a widget action
     }
     applySettings()
     renderShell()
@@ -1891,12 +1893,16 @@
   }
   // What changed since the version they had; their planned events can take the new reminders too.
   function whatsNew(seen) {
-    set.welcomed = true; set.news = NEWS; saveSettings()
+    const before = set.before511 // the reminder settings the new defaults replaced (they may have been chosen on purpose)
+    set.welcomed = true; set.news = NEWS; set.before511 = null; saveSettings()
     const items = (seen < 0 ? T('whatsNew').split('|') : []).concat(seen < 51 ? T('whatsNew51').split('|') : [], T('whatsNew511').split('|'))
     const old = S.live(doc.events).filter(e => String(e.remind) === '15' && (e.repeat || e.day >= S.today(now())))
-    const opts = [{ label: T('letsGo'), value: 1 }]
-    if (old.length && String(set.remindEvent) === String(DEFAULTS.remindEvent)) opts.unshift({ label: plural(old.length, 'newRemindOne', 'newRemindMany'), value: 2 })
+    const opts = []
+    if (old.length && String(set.remindEvent) === String(DEFAULTS.remindEvent)) opts.push({ label: plural(old.length, 'newRemindOne', 'newRemindMany'), value: 2, menu: true, icon: 'calendar' })
+    if (before) opts.push({ label: T('keepOldReminders'), value: 3, menu: true, icon: 'undo' })
+    opts.push({ label: T('letsGo'), value: 1 })
     choose(T('whatsNewTitle511'), '', opts, `<ul class="tips">${items.map(t => `<li>${esc(t)}</li>`).join('')}</ul>`).then(v => {
+      if (v === 3) { Object.assign(set, before); saveSettings(); snack(T('oldRemindersKept')) }
       if (v !== 2) return
       const setAll = r => { old.forEach(o => { const e = S.find(doc, o.id); if (e) { e.remind = r.slice(); touch(e) } }); commit() } // by id: a sync may have replaced the objects
       setAll(set.remindEvent)
