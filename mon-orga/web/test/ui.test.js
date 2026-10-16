@@ -237,3 +237,79 @@ test('the 5.1 tools: long press, imports, repeats, backups', { skip: !playwright
     await browser.close(); server.close()
   }
 })
+
+test('5.1.1: settings from 5.0, call and directions, archived lists, conflicts, progress picture', { skip: !playwright && 'playwright is not installed' }, async t => {
+  const server = await serve(0)
+  const url = 'http://127.0.0.1:' + server.address().port + '/index.html'
+  const browser = await playwright.chromium.launch()
+  const ctx = await browser.newContext({ viewport: { width: 412, height: 860 }, locale: 'fr-FR', timezoneId: 'Europe/Paris', acceptDownloads: true })
+  const t0 = NOW.getTime()
+  await ctx.addInitScript(t0 => {
+    if (sessionStorage.getItem('seeded')) return
+    sessionStorage.setItem('seeded', '1')
+    localStorage.setItem('mon-orga-doc', JSON.stringify({
+      tasks: [{ id: 'g', text: 'Rappeler le garage 06 12 34 56 78', due: '2026-10-16T14:00', place: '3 rue des Lilas', list: 'Voiture' }, { id: 'h', text: 'Ancien projet', list: 'Projet X' }],
+      events: [{ id: 'd', text: 'Dentiste 04 72 00 00 00', day: '2026-10-16', time: '16:30', remind: [60] }],
+      notes: [{ id: 'n', text: 'Courses', updatedAt: t0 }, { id: 'n-c1', text: 'Courses (autre)', conflictOf: 'n', updatedAt: t0 - 1 }],
+      history: [(t0 - 86400000) + ':g'],
+    }))
+    localStorage.setItem('mon-orga-settings', JSON.stringify({ welcomed: true, remindEvent: [15], nag: 0, summary: null, snooze: 10 })) // as 5.0 saved them
+  }, t0)
+  const page = await ctx.newPage()
+  page.setDefaultTimeout(5000)
+  const errors = []
+  page.on('pageerror', e => errors.push(e.message))
+  page.on('console', m => { if (m.type() === 'error') errors.push(m.text()) })
+  await page.clock.setFixedTime(NOW)
+  try {
+    await page.goto(url); await page.waitForSelector('#addInput')
+    await t.test('coming from 5.0: the new defaults, said once', async () => {
+      assert.match(await page.textContent('.dlg'), /Nouveaux réglages par défaut/)
+      await page.click('.dlg-actions button')
+      const s = await page.evaluate(() => JSON.parse(localStorage.getItem('mon-orga-settings')))
+      assert.deepEqual([s.remindEvent, s.nag, s.summary, s.news], [[60, 1440], 10, '08:00', 51])
+    })
+    await t.test('a number and a place: call and directions on the rows', async () => {
+      assert.ok(await page.$('.row.task[data-id="g"] .call[data-href="tel:0612345678"]'))
+      assert.match(await page.getAttribute('.row.task[data-id="g"] .route', 'data-href'), /maps.*3%20rue%20des%20Lilas/)
+      await page.click('#nav [data-tab="agenda"]')
+      assert.ok(await page.$('.row.event[data-id="d"] .call[data-href="tel:0472000000"]'))
+    })
+    await t.test('priority from the editor, sorted first', async () => {
+      await page.click('#nav [data-tab="tasks"]')
+      await page.click('.row.task[data-id="h"] .body')
+      await page.click('[data-act="prio"][data-v="3"]')
+      await page.click('[data-act="close"]')
+      assert.match(await page.textContent('.row.task[data-id="h"]'), /!!!/)
+    })
+    await t.test('an archived list leaves the screen and comes back', async () => {
+      await page.click('#nav [data-tab="plus"]')
+      await page.click('[data-act="list-archive"][data-v="Projet X"]')
+      await page.click('#nav [data-tab="tasks"]')
+      assert.equal(await page.$('.row.task[data-id="h"]'), null)
+      await page.click('#nav [data-tab="plus"]')
+      await page.click('[data-act="list-archive"][data-v="Projet X"]')
+      await page.click('#nav [data-tab="tasks"]')
+      assert.ok(await page.$('.row.task[data-id="h"]'))
+    })
+    await t.test('a sync conflict copy says what it is', async () => {
+      await page.click('#nav [data-tab="notes"]')
+      assert.match(await page.textContent('.card.note:has-text("Courses (autre)")'), /Conflit/)
+    })
+    await t.test('my progress as a picture', async () => {
+      await page.click('#nav [data-tab="plus"]')
+      const download = page.waitForEvent('download')
+      await page.click('[data-act="share-progress"]')
+      assert.equal((await download).suggestedFilename(), 'mon-orga-progres.png')
+    })
+    await t.test('Ctrl+Enter saves and closes an editor', async () => {
+      await page.click('#nav [data-tab="tasks"]')
+      await page.click('.row.task[data-id="g"] .body')
+      await page.keyboard.press('Control+Enter')
+      assert.equal(await page.$('#sheet:not([hidden])'), null)
+    })
+    assert.deepEqual(errors, [])
+  } finally {
+    await browser.close(); server.close()
+  }
+})

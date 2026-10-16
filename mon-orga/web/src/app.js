@@ -16,7 +16,7 @@
     snooze: 10, nag: 10, nagTimes: 3, summary: '08:00', loudImportant: false, privateNotifs: false, lock: false,
     tray: true, login: false, focus: null, welcomed: false,
     loudAll: false, dayStart: 0, eventLength: 60, recentTimes: [], morning: '09:00', evening: '19:00', quietFrom: '', quietTo: '',
-    colors: 'app', phoneCalendar: false, backupLast: 0, backupAsked: 0, news: 0,
+    colors: 'app', phoneCalendar: false, backupLast: 0, backupAsked: 0, news: 0, googleBackup: true, archivedLists: [],
   }
   const NEWS = 51 // bump with each "what's new" list
   let doc = S.empty()
@@ -195,9 +195,10 @@
   const newEvent = (o) => Object.assign(S.normalize({ events: [{ day: ui.day }] }, now()).events[0], { createdAt: now(), remind: set.remindEvent.slice() }, o)
   const defaultRemind = due => (due && due.length > 10 ? set.remindTask : set.remindAllDay).slice()
 
-  function lists() {
+  const archived = name => !!name && (set.archivedLists || []).indexOf(name) >= 0
+  function lists(all) {
     const seen = {}
-    S.live(doc.tasks).concat(S.live(doc.notes), S.live(doc.events)).forEach(x => { if (x.list) seen[x.list] = (seen[x.list] || 0) + 1 })
+    S.live(doc.tasks).concat(S.live(doc.notes), S.live(doc.events)).forEach(x => { if (x.list && (all || !archived(x.list))) seen[x.list] = (seen[x.list] || 0) + 1 })
     return Object.keys(seen).sort((a, b) => seen[b] - seen[a] || a.localeCompare(b))
   }
   function allTags() {
@@ -206,7 +207,9 @@
     return Object.keys(seen).sort()
   }
   function passes(x) {
-    const f = ui.filter; if (!f) return true
+    const f = ui.filter
+    if (archived(x.list) && f !== 'list:' + x.list) return false // an archived project stays out of the way
+    if (!f) return true
     if (f === 'important') return !!x.important
     if (f.indexOf('list:') === 0) return x.list === f.slice(5)
     if (f.indexOf('tag:') === 0) return S.tags(x.text + ' ' + (x.details || '')).indexOf(f.slice(4)) >= 0
@@ -351,9 +354,10 @@
     ui.draft = { due: null, repeat: null, important: false, raw: false }
     renderAddBar()
     const t = created[0]
-    if (created.length > 1) snack(T('addedN', created.length), [{ label: T('undo'), run: () => created.forEach(c => put(Object.assign(S.find(doc, c.id), { deleted: true }))) }])
+    if (created.length > 1) snack(T('addedN', created.length), [{ label: T('undo'), run: () => created.forEach(c => put(Object.assign(S.find(doc, c.id), { deleted: true }))) }]
+      .concat(created.every(c => c.repeat && c.due && !c.loud && !set.loudAll) ? [{ label: T('loudShort'), run: () => { created.forEach(c => put(Object.assign(S.find(doc, c.id), { loud: true }))); warnIfBlocked() } }] : [])) // a pill box: offer the alarm
     else if (!t.due) {
-      snack(T('addedAsk'), presets().slice(0, 3).map(v => ({ label: presetLabel(v), run: () => { const x = S.find(doc, t.id); setDue(x, dueFromPreset(v)); put(x); snack(T('remindAt', fmtDue(x))) } })), 8000)
+      snack(T('addedAsk'), presets().slice(0, 3).map(v => ({ label: presetLabel(v), run: () => { const x = S.find(doc, t.id); setDue(x, dueFromPreset(v)); put(x); snack(T('remindAt', fmtDue(x))) } })), undoMs())
     } else {
       const acts = [{ label: T('edit'), run: () => openSheet(t.id) }]
       if (t.due.length > 10 && APPOINTMENT.test(t.text)) acts.unshift({ label: T('makeEvent'), run: () => taskToEvent(t.id) }) // "Dentiste mardi 14h30" is an appointment
@@ -497,6 +501,12 @@
 
   // ---------- tasks ----------
   const overdue = (t, n) => !t.done && !!t.due && (t.due.length > 10 ? S.ms(t.due) < n : t.due < S.today(n))
+  const mapUrl = place => (H.platform === 'android' ? 'geo:0,0?q=' : 'https://www.google.com/maps/search/?api=1&query=') + encodeURIComponent(place)
+  function rowLinks(text, place) { // one tap to call the number in the title, or to go to the place
+    const tel = phoneIn(text)
+    return (tel ? `<button class="icon-btn call" data-act="link" data-href="${esc(tel.href)}" aria-label="${esc(T('call', tel.label))}" title="${esc(T('call', tel.label))}">${icon('phone')}</button>` : '') +
+      (place ? `<button class="icon-btn route" data-act="link" data-href="${esc(mapUrl(place))}" aria-label="${esc(T('routeTo', place))}" title="${esc(T('routeTo', place))}">${icon('place')}</button>` : '')
+  }
   function taskRow(t, opts) {
     const n = now(); const over = overdue(t, n)
     const meta = []
@@ -508,6 +518,7 @@
     }
     if (t.steps.length) meta.push(`<span class="m">${icon('boxed')}<span aria-hidden="true">${t.steps.filter(s => s.done).length}/${t.steps.length}</span><span class="sr">${esc(T('srSteps', t.steps.filter(s => s.done).length, t.steps.length))}</span></span>`)
     if (t.place) meta.push(`<span class="m">${icon('place')}${esc(t.place)}</span>`)
+    if (S.pri(t) > 1) meta.push(`<span class="m prio" title="${esc(T('prioN', S.pri(t)))}"><span aria-hidden="true">${'!'.repeat(S.pri(t))}</span><span class="sr">${esc(T('prioN', S.pri(t)))}</span></span>`)
     if (t.repeat && t.doneAt && S.today(t.doneAt) === S.today(n)) meta.push(`<span class="m good">${icon('checked')}${esc(T('doneAt', fmtTime(S.hm(new Date(t.doneAt)))))}</span>`)
     if (t.details) meta.push(`<span class="m">${icon('note')}<span class="sr">${esc(T('srDetails'))}</span></span>`)
     if (t.list && !(ui.filter === 'list:' + t.list)) meta.push(listChip(t.list))
@@ -516,7 +527,7 @@
       <button class="check" data-act="toggle" role="checkbox" aria-checked="${t.done}" aria-label="${esc(T(t.done ? 'markUndone' : 'markDone', t.text))}">${icon(t.done ? 'checked' : 'circle')}</button>
       <button class="body" data-act="open"><span class="title">${esc(t.text)}</span>${meta.length ? `<span class="meta">${meta.join('')}</span>` : ''}</button>
       ${late ? `<button class="mini" data-act="postpone" aria-label="${esc(T('toTomorrowFull', t.text))}">${icon('forward')}${esc(T('toTomorrow'))}</button>` : ''}
-      ${phoneIn(t.text) && !t.done ? `<button class="icon-btn call" data-act="link" data-href="${esc(phoneIn(t.text).href)}" aria-label="${esc(T('call', phoneIn(t.text).label))}" title="${esc(T('call', phoneIn(t.text).label))}">${icon('phone')}</button>` : ''}
+      ${t.done ? '' : rowLinks(t.text, t.place)}
       <button class="icon-btn star" data-act="star" aria-pressed="${t.important}" aria-label="${esc(T('importantFor', t.text))}" title="${esc(T('important'))}">${icon(t.important ? 'star' : 'star_border')}</button>
     </li>`
   }
@@ -580,7 +591,7 @@
       ${n.images.length ? `<img class="thumb" src="${esc(n.images[0])}" alt="">` : ''}
       <span class="title">${n.pinned ? icon('pin', 'pin') : ''}${esc(title || T('untitled'))}</span>
       ${body ? `<span class="preview">${esc(body.replace(/^\s*[-*]\s*\[[ ]\]\s*/gm, '☐ ').replace(/^\s*[-*]\s*\[[xX]\]\s*/gm, '☑ '))}</span>` : ''}
-      <span class="meta">${boxes.length ? `<span class="m">${icon('boxed')}${ticked}/${boxes.length}</span>` : ''}${n.list ? listChip(n.list) : ''}<span class="m soft">${esc(date)}</span></span>
+      <span class="meta">${n.conflictOf ? `<span class="m late">${icon('warn')}${esc(T('conflictCopy'))}</span>` : ''}${boxes.length ? `<span class="m">${icon('boxed')}${ticked}/${boxes.length}</span>` : ''}${n.list ? listChip(n.list) : ''}<span class="m soft">${esc(date)}</span></span>
     </button></li>`
   }
   function notesView() {
@@ -606,7 +617,7 @@
     if (e.remind.length) meta.push(`<span class="m">${icon(e.loud || set.loudAll ? 'alarm' : 'bell')}<span class="sr">${esc(T('srRemind', e.remind.map(m => remindLabel(m, !e.time)).join(', ')))}</span></span>`)
     if (e.list) meta.push(listChip(e.list))
     return `<li class="row event ${e.important ? 'imp' : ''}" data-id="${e.id}" data-day="${day}"${e.list ? ` style="--h:${hue(e.list.toLowerCase())}"` : ''}>${when}
-      <button class="body" data-act="open"><span class="title">${e.important ? icon('star', 'pin') : ''}${esc(e.text)}</span>${meta.length ? `<span class="meta">${meta.join('')}</span>` : ''}</button></li>`
+      <button class="body" data-act="open"><span class="title">${e.important ? icon('star', 'pin') : ''}${esc(e.text)}</span>${meta.length ? `<span class="meta">${meta.join('')}</span>` : ''}</button>${rowLinks(e.text, e.place)}</li>`
   }
   // Events of the phone's own calendars (Google…), read only.
   function phoneRow(e, day) {
@@ -893,6 +904,7 @@
         ${timeButtons(S.timeOf(t.due))}
         ${t.due ? `<p class="hint ${S.sectionOf(t, now(), set.dayStart) === 'late' ? 'late' : ''}">${esc(fmtDue(t, true))}${allDay ? ' · ' + esc(T('allDayTask')) : ''}</p>` : `<p class="hint">${esc(T('noDateHint'))}</p>`}
       </section>
+      <section class="group"><h3>${icon('star')}${esc(T('priority'))}</h3><div class="chips wrap">${[0, 1, 2, 3].map(n => `<button class="chip ${S.pri(t) === n ? 'on' : ''}" data-act="prio" data-v="${n}" aria-pressed="${S.pri(t) === n}">${esc(n ? '!'.repeat(n) + ' ' + T('prio' + n) : T('prio0'))}</button>`).join('')}</div></section>
       ${t.due ? `<section class="group"><h3>${icon('bell')}${esc(T('reminders'))}</h3>${remindChips(t, allDay)}</section>` : ''}
       <section class="group"><h3>${icon('repeat')}${esc(T('repeat'))}</h3>${repeatControls(t, true)}</section>
       <section class="group">
@@ -917,6 +929,7 @@
           <button class="tonal" data-act="postpone-cur" data-v="1">${icon('forward')}${esc(T('postpone1'))}</button>
           <button class="tonal" data-act="postpone-cur" data-v="2">${esc(T('postpone2'))}</button>
           <button class="tonal" data-act="postpone-cur" data-v="7">${esc(T('postpone7'))}</button>` : ''}
+        ${!t.done && t.due && APPOINTMENT.test(t.text) ? `<button class="tonal" data-act="make-event">${icon('calendar')}${esc(T('makeEvent'))}</button>` : ''}
         <button class="filled" data-act="toggle-cur">${icon(t.done ? 'undo' : 'checked')}${esc(T(t.done ? 'reopen' : 'markDoneBtn'))}</button>
       </div>
       <p class="stamp">${stampText(t)}</p>
@@ -951,6 +964,7 @@
       `<button class="icon-btn ${n.pinned ? 'on' : ''}" data-act="note-pin" aria-pressed="${n.pinned}" aria-label="${esc(T('pinIt'))}" title="${esc(T('pinIt'))}">${icon('pin')}</button>` +
       act('share-item', 'share', T('share')) + act('copy-item', 'copy', T('copy')) + act('delete', 'delete', T('delete'))) + `
     <div class="sheet-body note-body">
+      ${n.conflictOf ? `<div class="banner warn-banner">${icon('warn')}<span>${esc(T('conflictHint'))}</span></div>` : ''}
       ${read ? `<div class="note-read" data-act="note-mode">${renderNoteText(n.text) || '<p class="hint">' + esc(T('emptyNote')) + '</p>'}</div>`
         : `<textarea class="note-text" data-f="text" placeholder="${esc(T('noteHint'))}" aria-label="${esc(T('note'))}">${esc(n.text)}</textarea>`}
       ${n.images.length ? `<div class="photos">${n.images.map((src, i) => `<figure><img src="${esc(src)}" alt="${esc(T('photo'))} ${i + 1}" data-act="photo-view" data-i="${i}">${read ? '' : act('photo-del', 'close', T('delete'), 'tiny" data-i="' + i)}</figure>`).join('')}</div>` : ''}
@@ -992,7 +1006,7 @@
       <section class="group"><h3>${icon('label')}${esc(T('list'))}</h3>${listControls(e)}</section>
       <section class="group"><h3>${icon('note')}${esc(T('details'))}</h3>
         <textarea class="details" data-f="details" rows="3" placeholder="${esc(T('detailsHint'))}" aria-label="${esc(T('details'))}">${esc(e.details)}</textarea>
-        ${linksBox(e.details, 'details')}
+        ${linksBox(e.text + '\n' + e.details, 'details')}
         <button class="tonal small" data-act="event-note">${icon('note')}${esc(hasNote ? T('openNote', noteTitle(linked) || T('untitled')) : T('linkNote'))}</button>
       </section>
       ${H.addToCalendar ? `<div class="actions"><button class="tonal" data-act="add-calendar">${icon('calendar')}${esc(T('addToPhoneCal'))}</button></div>` : ''}
@@ -1009,8 +1023,8 @@
     if (change && ui.sheet.kind === 'events' && item.repeat && ui.sheet.day && !ui.sheet.series && ['day', 'time', 'end', 'allDay', 'multi'].indexOf(f) >= 0) return seriesChange(item, el)
     let again = false; let later = !change
     switch (f) {
-      case 'text': item.text = el.value; if (el.classList.contains('title-input')) { autoGrow(el); if (ui.sheet.kind === 'tasks') updateLinks('details', item.text + '\n' + item.details) } else if (el.classList.contains('note-text')) { autoGrow(el); updateLinks('text', el.value) } break
-      case 'details': item.details = el.value; autoGrow(el); updateLinks('details', (ui.sheet.kind === 'tasks' ? item.text + '\n' : '') + el.value); break
+      case 'text': item.text = el.value; if (el.classList.contains('title-input')) { autoGrow(el); if (ui.sheet.kind !== 'notes') updateLinks('details', item.text + '\n' + item.details) } else if (el.classList.contains('note-text')) { autoGrow(el); updateLinks('text', el.value) } break
+      case 'details': item.details = el.value; autoGrow(el); updateLinks('details', (ui.sheet.kind === 'notes' ? '' : item.text + '\n') + el.value); break
       case 'place': item.place = el.value; break
       case 'list': item.list = el.value.trim(); if (!change) break; again = true; break
       case 'step': item.steps[+el.dataset.i].text = el.value; break
@@ -1090,6 +1104,41 @@
     const d = day || item.day
     return [item.text, '📅 ' + fmtDay(d, true) + (item.time ? ' ' + fmtTime(item.time) + (item.end ? ' – ' + fmtTime(item.end) : '') : ' (' + T('allDay') + ')'),
       item.place ? '📍 ' + item.place : '', item.repeat ? '🔁 ' + repeatLabel(item.repeat) : '', item.details].filter(Boolean).join('\n')
+  }
+  // A picture of the progress, the size of a story (1080 × 1920), in the theme's colours.
+  function progressImage() {
+    const st = stats(); const css = getComputedStyle(document.documentElement); const v = k => css.getPropertyValue(k).trim()
+    const c = document.createElement('canvas'); c.width = 1080; c.height = 1920; const g = c.getContext('2d')
+    const font = (w, px) => w + ' ' + px + 'px ' + (v('--font') || 'sans-serif')
+    g.fillStyle = v('--surface') || '#fef7ff'; g.fillRect(0, 0, 1080, 1920)
+    g.fillStyle = v('--primary-container') || '#eaddff'; g.beginPath(); g.arc(540, 520, 330, 0, 2 * Math.PI); g.fill()
+    g.textAlign = 'center'; g.fillStyle = v('--on-primary-container') || '#21005d'
+    g.font = font(800, 260); g.fillText(String(st.streak), 540, 600)
+    g.font = font(600, 54); g.fillText(T('streakDays'), 540, 700)
+    g.fillStyle = v('--on-surface') || '#1d1b20'
+    g.font = font(700, 70); g.fillText(T('level', st.level.level) + ' · ' + T('xpTotal', st.count * 10), 540, 1000)
+    g.font = font(400, 46); g.fillText(T('bestStreak') + ' : ' + st.best + ' · ' + T('thisWeek') + ' : ' + st.week, 540, 1080)
+    const max = Math.max.apply(null, [1].concat(st.last7.map(x => x.n)))
+    st.last7.forEach((x, i) => {
+      const h = Math.round(x.n / max * 420); const left = 140 + i * 120
+      g.fillStyle = v('--primary') || '#6750a4'; g.fillRect(left, 1580 - h, 80, Math.max(6, h))
+      g.fillStyle = v('--on-variant') || '#49454f'; g.font = font(600, 40); g.fillText(fmt({ weekday: 'narrow' }, S.parseDay(x.day)), left + 40, 1640)
+      if (x.n) { g.fillStyle = v('--on-surface') || '#1d1b20'; g.fillText(String(x.n), left + 40, 1560 - h) }
+    })
+    g.fillStyle = v('--primary') || '#6750a4'; g.font = font(700, 48); g.fillText('Mon Orga', 540, 1800)
+    return c.toDataURL('image/png')
+  }
+  async function shareProgress() {
+    const st = stats(); const text = T('progressShare', st.streak, st.level.level, st.week, st.best); const src = progressImage()
+    if (H.shareImage) return H.shareImage(src, text)
+    try {
+      const bin = atob(src.split(',')[1]); const bytes = new Uint8Array(bin.length) // no fetch() of a data: URL (the page's CSP)
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+      const file = new File([bytes], 'mon-orga.png', { type: 'image/png' })
+      if (navigator.canShare && navigator.canShare({ files: [file] })) return await navigator.share({ files: [file], text: text })
+    } catch (e) { /* no sharing here: save it */ }
+    const a = document.createElement('a'); a.href = src; a.download = 'mon-orga-progres.png'; document.body.appendChild(a); a.click(); a.remove()
+    snack(T('imageSaved'))
   }
   function shareText(title, text) {
     if (H.share) H.share(title, text)
@@ -1187,10 +1236,11 @@
       ${sw('sober', T('sober'), T('soberHint'))}
       ${sw('calm', T('calm'), T('calmHint'))}
       ${sw('lefty', T('lefty'), T('leftyHint'))}`)
-    if (H.can.lock) html += card('lock', T('privacyTitle'), sw('lock', T('lock'), T('lockHint')) + sw('privateNotifs', T('privateNotifs'), T('privateNotifsHint')) + `<p class="hint">${esc(T('privacyHint'))}</p>`)
+    if (H.can.lock) html += card('lock', T('privacyTitle'), sw('lock', T('lock'), T('lockHint')) + sw('privateNotifs', T('privateNotifs'), T('privateNotifsHint')) +
+      (H.platform === 'android' ? sw('googleBackup', T('googleBackup'), T(set.lock ? 'googleBackupLocked' : 'googleBackupHint')) : '') + `<p class="hint">${esc(T(set.lock || !set.googleBackup ? 'privacyHintOff' : 'privacyHint'))}</p>`)
     if (H.can.tray) html += card('pc', T('pcAppTitle'), sw('tray', T('tray'), T('trayHint')) + sw('login', T('login'), T('loginHint')))
-    const ls = lists()
-    if (ls.length) html += card('label', T('listsTitle'), `<ul class="lists">${ls.map(l => `<li>${listChip(l)}<span class="grow"></span><button class="text-btn" data-act="list-rename" data-v="${esc(l)}">${esc(T('rename'))}</button><button class="text-btn danger" data-act="list-remove" data-v="${esc(l)}">${esc(T('removeList'))}</button></li>`).join('')}</ul>`)
+    const ls = lists(true)
+    if (ls.length) html += card('label', T('listsTitle'), `<ul class="lists">${ls.map(l => `<li class="${archived(l) ? 'archived' : ''}">${listChip(l)}${archived(l) ? `<small>${esc(T('archivedTag'))}</small>` : ''}<span class="grow"></span><button class="text-btn" data-act="list-rename" data-v="${esc(l)}">${esc(T('rename'))}</button><button class="text-btn" data-act="list-archive" data-v="${esc(l)}">${esc(T(archived(l) ? 'restore' : 'archive'))}</button><button class="text-btn danger" data-act="list-remove" data-v="${esc(l)}">${esc(T('removeList'))}</button></li>`).join('')}</ul><p class="hint">${esc(T('archiveHint'))}</p>`)
     html += card('help', T('helpTitle'), `<ul class="tips">${T('tips').split('|').concat([T('keysTip')]).map(t => `<li>${esc(t)}</li>`).join('')}</ul>
       <div class="btns">
         <button class="tonal" data-act="welcome">${icon('help')}${esc(T('welcomeAgain'))}</button>
@@ -1459,7 +1509,7 @@
     filter: el => { ui.filter = el.dataset.v || null; render() },
     toggle: (el, id) => toggleTask(id),
     open: (el, id) => openSheet(id, { day: el.closest('[data-day]') ? el.closest('[data-day]').dataset.day : null }),
-    star: (el, id) => { const t = S.find(doc, id); put(Object.assign(t, { important: !t.important, loud: !t.important && set.loudImportant ? true : t.loud })) },
+    star: (el, id) => { const t = S.find(doc, id); put(Object.assign(t, { important: !t.important, prio: 0, loud: !t.important && set.loudImportant ? true : t.loud })) },
     postpone: (el, id) => postponeTask(id),
     'postpone-all': () => {
       const late = S.live(doc.tasks).filter(t => S.sectionOf(t, now(), set.dayStart) === 'late'); const before = clone(late)
@@ -1475,7 +1525,7 @@
     'add-preset': el => { const d = dueFromPreset(el.dataset.v); ui.draft.due = ui.draft.due === d ? null : d; renderHint(); $('#addInput').focus() },
     'add-imp': () => { ui.draft.important = !ui.draft.important; renderHint(); $('#addInput').focus() },
     'add-raw': () => { ui.draft.raw = true; renderHint(); $('#addInput').focus() },
-    mic: () => { if (!H.voice) return; H.voice().then(text => { if (!text) return; if (ui.tab === 'notes') { addNote(text); snack(T('noteAdded')) } else addTasks(text) }) },
+    mic: () => { if (!H.voice) return; H.voice().then(text => { if (!text) return; if (ui.tab === 'notes') { addNote(text); snack(T('noteAdded')) } else if (ui.tab === 'agenda') addEvents(text); else addTasks(text) }) },
     'note-full': () => { const i = $('#addInput'); const v = i ? i.value : ''; if (i) i.value = ''; newNoteFull(v) },
     'event-full': () => {
       const i = $('#addInput'); const v = i ? i.value.trim() : ''; if (i) { i.value = ''; autoGrow(i) }
@@ -1532,7 +1582,10 @@
       closeSheet(); remove(it.id)
     },
     'toggle-cur': () => { toggleTask(ui.sheet.id); renderSheet() },
-    'star-cur': () => { const t = S.find(doc, ui.sheet.id); t.important = !t.important; if (t.important && set.loudImportant) t.loud = true; put(t); renderSheet() },
+    'star-cur': () => { const t = S.find(doc, ui.sheet.id); t.important = !t.important; if (!t.important) t.prio = 0; if (t.important && set.loudImportant) t.loud = true; put(t); renderSheet() },
+    prio: el => { const t = S.find(doc, ui.sheet.id); const n = +el.dataset.v; t.important = n > 0; t.prio = n; if (n && set.loudImportant) t.loud = true; put(t); renderSheet() },
+    'make-event': () => { const id = ui.sheet.id; closeSheet(); taskToEvent(id) },
+    'list-archive': el => { const name = el.dataset.v; const on = archived(name); set.archivedLists = on ? set.archivedLists.filter(x => x !== name) : (set.archivedLists || []).concat([name]); if (!on && ui.filter === 'list:' + name) ui.filter = null; saveSettings(); render(); snack(T(on ? 'listRestored' : 'listArchived', name)) },
     'sheet-full': () => { ui.sheetFull = !ui.sheetFull; document.body.classList.toggle('sheet-full', ui.sheetFull); renderSheet() },
     'due-time': el => {
       if (ui.sheet.kind !== 'tasks') { const f = $('[data-f="time"]'); if (f) { f.value = el.dataset.v; onField({ target: f, type: 'change' }) } return }
@@ -1640,7 +1693,7 @@
     'backup-folder-off': async () => { await H.clearBackupFolder(); ui.autoBackup = false; fillPlusAsync() },
     'test-alarm-15': () => { H.testAlarmIn(15, false); snack(T('testIn15')) },
     'sync-new-code': () => { H.syncNewCode(); fillPlusAsync(); snack(T('newCodeDone')) },
-    'share-progress': () => { const st = stats(); shareText(T('progress'), T('progressShare', st.streak, st.level.level, st.week, st.best)) },
+    'share-progress': () => shareProgress(),
     'list-rename': async el => {
       const old = el.dataset.v
       const name = await ask(T('renameList'), old); if (!name || name === old) return
@@ -1708,6 +1761,7 @@
     if (e.target && e.target.id === 'askInput' && e.key === 'Enter') { e.preventDefault(); return dialogDone && dialogDone('1') }
     const typing = /INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '')
     const mod = e.ctrlKey || e.metaKey
+    if (mod && e.key === 'Enter' && ui.sheet && (!dlg || dlg.hidden)) { e.preventDefault(); return closeSheet() }
     if (mod && e.key.toLowerCase() === 'f') { e.preventDefault(); openSearch() }
     else if (mod && e.key.toLowerCase() === 'n') { e.preventDefault(); quickNew() }
     else if (!typing && e.altKey && /^[1-4]$/.test(e.key)) { e.preventDefault(); switchTab(TABS[+e.key - 1][0]) }
@@ -1774,6 +1828,11 @@
   }
   async function boot() {
     try { set = Object.assign({}, DEFAULTS, await H.loadSettings()) } catch (e) { /* defaults */ }
+    if (set.welcomed && (set.news || 0) < 51) { // from 5.0: its old defaults become the new ones (said in "what's new")
+      if (String(set.remindEvent) === '15') set.remindEvent = DEFAULTS.remindEvent.slice()
+      if (set.nag === 0) set.nag = DEFAULTS.nag
+      if (set.summary === null) set.summary = DEFAULTS.summary
+    }
     applySettings()
     renderShell()
     try { doc = S.normalize(await H.load()) } catch (e) { console.error(e) }

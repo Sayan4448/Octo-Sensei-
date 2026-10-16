@@ -371,3 +371,7 @@ p.ok > .ic { color: var(--ok) } p.warn > .ic { color: var(--late) }
 .menu-item .ic { color: var(--primary) }
 .menu-item:hover, .menu-item:focus-visible { background: var(--hover) }
 .nb { white-space: nowrap }
+.icon-btn.route { color: var(--primary) }
+.m.prio { color: var(--star); font-weight: 800; letter-spacing: -1px }
+.lists li.archived { opacity: .6 }
+.lists li small { margin-left: 6px; color: var(--on-variant) }

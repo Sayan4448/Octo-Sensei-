@@ -57,5 +57,14 @@
       ["2026-10-16T10:00", "2026-10-18T00:00", [["2026-10-16T17:00", "t1"], ["2026-10-16T18:00", "t1"], ["2026-10-17T08:00", "t4"], ["2026-10-17T09:00", "e2"], ["2026-10-17T09:00", "t2"]]],
       ["2026-10-20T09:00", "2026-10-24T00:00", [["2026-10-20T13:45", "e1"], ["2026-10-21T08:00", "t4"], ["2026-10-22T08:00", "t4"], ["2026-10-23T08:00", "t4"], ["2026-10-23T19:00", "e3"]]]
     ]
-  }
+  },
+  "merge": [
+    [{"notes": [{"id": "n", "text": "A", "updatedAt": 200}]}, {"notes": [{"id": "n", "text": "B", "updatedAt": 300}]}, 100, [["n", "B"], ["n-c200", "A"]]],
+    [{"notes": [{"id": "n", "text": "A", "updatedAt": 200}]}, {"notes": [{"id": "n", "text": "B", "updatedAt": 300}]}, 250, [["n", "B"]]],
+    [{"notes": [{"id": "n", "text": "A", "updatedAt": 210}]}, {"notes": [{"id": "n", "text": "A", "updatedAt": 300}]}, 100, [["n", "A"]]],
+    [{"notes": [{"id": "n", "text": "A", "updatedAt": 200}]}, {"notes": [{"id": "n", "text": "B", "updatedAt": 300}]}, 0, [["n", "B"]]],
+    [{"notes": [{"id": "n", "text": "A", "updatedAt": 200}, {"id": "n-c200", "text": "A", "updatedAt": 200, "conflictOf": "n"}]}, {"notes": [{"id": "n", "text": "B", "updatedAt": 300}]}, 100, [["n", "B"], ["n-c200", "A"]]],
+    [{"notes": [{"id": "n", "text": "A", "updatedAt": 200, "deleted": true}]}, {"notes": [{"id": "n", "text": "B", "updatedAt": 300}]}, 100, [["n", "B"]]],
+    [{"notes": [{"id": "n", "text": "A", "updatedAt": 400}, {"id": "m", "text": "x", "updatedAt": 50}]}, {"notes": [{"id": "n", "text": "B", "updatedAt": 300}]}, 100, [["n", "A"], ["n-c300", "B"], ["m", "x"]]]
+  ]
 }

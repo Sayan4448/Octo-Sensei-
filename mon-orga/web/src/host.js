@@ -83,6 +83,7 @@
       clearBackupFolder: has('clearBackupFolder') ? () => Promise.resolve(A.clearBackupFolder()) : null,
       backupInfo: has('backupInfo') ? () => Promise.resolve(json(A.backupInfo(), {})) : null,
       testAlarmIn: has('testAlarmIn') ? (minutes, loud) => A.testAlarmIn(minutes, !!loud) : null,
+      shareImage: has('shareImage') ? (src, text) => A.shareImage(src, text || '') : null,
     }
   }
 

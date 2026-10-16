@@ -1,13 +1,27 @@
 // A fake phone for the tests: the same API as the Android app's SyncServer.
 const http = require('http')
 const Store = require('../../web/src/store.js')
+const { seal, open } = require('../sync.js')
 module.exports = function fakePhone(code, doc) {
   const phone = { doc: Store.normalize(doc || {}), calls: [] }
   phone.server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://x')
     phone.calls.push(url.pathname)
     const send = (status, body) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(typeof body === 'string' ? body : JSON.stringify(body)) }
-    if (url.pathname === '/api/ping') return send(200, { app: 'mon-orga', name: 'Pixel test' })
+    if (url.pathname === '/api/ping') return send(200, Object.assign({ app: 'mon-orga', name: 'Pixel test' }, phone.old ? {} : { v: 2 }))
+    if (url.pathname === '/api/v2/sync' && !phone.old) { // encrypted, like Sync.kt
+      phone.contentType = req.headers['content-type']
+      const chunks = []
+      req.on('data', c => chunks.push(c))
+      req.on('end', () => {
+        let msg
+        try { msg = open(code, JSON.parse(Buffer.concat(chunks).toString('utf8'))) } catch (e) { return send(401, '"Code incorrect"') }
+        phone.since = msg.since
+        if (msg.doc) phone.doc = Store.merge(phone.doc, msg.doc, msg.since)
+        send(200, seal(code, { ts: Date.now(), doc: phone.doc }))
+      })
+      return
+    }
     if (url.searchParams.get('k') !== code) return send(401, '"Code incorrect"')
     if (url.pathname === '/api/state') return send(200, phone.doc)
     if (url.pathname === '/api/sync') {
