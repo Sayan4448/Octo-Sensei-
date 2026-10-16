@@ -1,7 +1,10 @@
 package com.sayan.todo
 
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
+import android.net.Uri
+import android.provider.DocumentsContract
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
@@ -13,6 +16,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.UUID
+import kotlin.concurrent.thread
 
 // The data is one JSON document, the same as the interface (web/src/store.js) and the PC app use.
 // Kotlin reads only what reminders, the widget and notification buttons need, and keeps every other field as is.
@@ -44,23 +48,23 @@ fun loadDoc(prefs: SharedPreferences): JSONObject = synchronized(lock) {
     }
 }
 
-fun saveDoc(prefs: SharedPreferences, doc: JSONObject, now: Long = System.currentTimeMillis()): Unit = synchronized(lock) {
-    prefs.edit().putString(STATE_KEY, purge(doc, now).toString()).apply()
+// False when the phone could not write it (storage full): the interface tells the user.
+fun saveDoc(prefs: SharedPreferences, doc: JSONObject, now: Long = System.currentTimeMillis()): Boolean = synchronized(lock) {
+    prefs.edit().putString(STATE_KEY, purge(doc, now).toString()).commit()
 }
 
-// Merges another copy (the interface, the PC, a backup) into what is stored, stores and returns the result.
-fun syncDoc(prefs: SharedPreferences, incoming: JSONObject): JSONObject = synchronized(lock) {
-    merge(loadDoc(prefs), incoming).also { saveDoc(prefs, it) }
+// Merges another copy (the interface, the PC, a backup) into what is stored, stores and returns the result (null: not stored).
+fun syncDoc(prefs: SharedPreferences, incoming: JSONObject): JSONObject? = synchronized(lock) {
+    merge(loadDoc(prefs), incoming).takeIf { saveDoc(prefs, it) }
 }
 
-// Changes one item in place and stores the document. Returns false when there is no such item.
+// Changes one item in place and stores the document. Returns false when there is no such item or it could not be stored.
 fun editItem(prefs: SharedPreferences, id: String, now: Long, change: (item: JSONObject, doc: JSONObject) -> Unit): Boolean = synchronized(lock) {
     val doc = loadDoc(prefs)
     val item = findItem(doc, id) ?: return false
     change(item, doc)
     item.put("updatedAt", maxOf(now, item.optLong("updatedAt") + 1))
     saveDoc(prefs, doc, now)
-    true
 }
 
 fun findItem(doc: JSONObject, id: String): JSONObject? {
@@ -92,8 +96,11 @@ fun merge(local: JSONObject, remote: JSONObject): JSONObject {
     return out.put("app", "mon-orga").put("version", 2)
 }
 
-// History entries: a completion time (v4), or "time:taskId" (v5, so ticking twice the same day counts once).
+// History entries: a completion time (v4), or "time:taskId" (v5, so ticking twice the same day counts once),
+// "time:taskId:x" when that tick was undone.
 fun historyTime(entry: Any): Long = (entry as? Number)?.toLong() ?: entry.toString().substringBefore(':').toLongOrNull() ?: 0
+
+fun JSONObject.history(): JSONArray = optJSONArray("history") ?: JSONArray().also { put("history", it) }
 
 private fun purge(doc: JSONObject, now: Long): JSONObject {
     val limit = now - TOMBSTONE_DAYS * DAY_MS
@@ -155,7 +162,10 @@ fun stamp(ms: Long): String = ms.toLocal().format(STAMP)
 fun dueTime(due: String): LocalDateTime = LocalDate.parse(due.take(10)).atTime(if (due.length > 10) LocalTime.parse(due.substring(11, 16)) else MORNING)
 
 // ---------- recurrence (same rules as web/src/store.js, checked by the shared fixtures) ----------
-// daily | weekdays | weekly | weekly:1,3,5 (1 = Monday) | weeks:N | monthly | yearly | days:N | hours:N
+// daily | weekdays | weekly | weekly:1,3,5 (1 = Monday) | weeks:N | monthly | months:N | nth:K:D | yearly | days:N | hours:N,
+// and hours:N:after, days:N:after, weeks:N:after: counted from the tick (only completeTask reads the ":after").
+
+fun repeatN(repeat: String): Int = repeat.split(':').getOrNull(1)?.toIntOrNull()?.coerceAtLeast(1) ?: 1
 
 fun repeatDays(repeat: String): List<Int> = repeat.removePrefix("weekly:").split(',').mapNotNull { it.trim().toIntOrNull() }.filter { it in 1..7 }
 
@@ -163,7 +173,7 @@ fun repeatDays(repeat: String): List<Int> = repeat.removePrefix("weekly:").split
 fun nextDay(start: LocalDate, repeat: String?, from: LocalDate, until: LocalDate?, skip: Set<LocalDate>): LocalDate? {
     if (repeat == null) return if (!start.isBefore(from) && (until == null || !start.isAfter(until))) start else null
     val kind = repeat.substringBefore(':')
-    val n = repeat.substringAfter(':', "1").toIntOrNull()?.coerceAtLeast(1) ?: 1
+    val n = repeatN(repeat)
     var d = if (from.isAfter(start)) from else start
     repeat(400) {
         val c: LocalDate = when {
@@ -177,12 +187,18 @@ fun nextDay(start: LocalDate, repeat: String?, from: LocalDate, until: LocalDate
                 val days = repeatDays(repeat).ifEmpty { return null }
                 var x = d; while (x.dayOfWeek.value !in days) x = x.plusDays(1); x
             }
-            kind == "monthly" || kind == "yearly" -> {
-                val step = if (kind == "monthly") 1L else 12L
+            kind == "monthly" || kind == "yearly" || kind == "months" -> {
+                val step = when (kind) { "monthly" -> 1L; "yearly" -> 12L; else -> n.toLong() }
                 var k = maxOf(0L, ((d.year - start.year) * 12L + d.monthValue - start.monthValue) / step)
                 var x = start.plusMonths(k * step)
                 while (x.isBefore(d)) { k++; x = start.plusMonths(k * step) }
                 x
+            }
+            kind == "nth" -> { // nth:2:4 = the 2nd Thursday of each month, nth:-1:5 = the last Friday
+                val k = repeat.split(':').getOrNull(1)?.toIntOrNull() ?: return null
+                val wd = repeat.split(':').getOrNull(2)?.toIntOrNull() ?: return null
+                if (wd !in 1..7 || (k != -1 && k !in 1..5)) return null
+                (0L until 24L).firstNotNullOfOrNull { i -> nthWeekday(d.withDayOfMonth(1).plusMonths(i), k, wd)?.takeIf { !it.isBefore(d) } } ?: return null
             }
             else -> return null
         }
@@ -193,6 +209,14 @@ fun nextDay(start: LocalDate, repeat: String?, from: LocalDate, until: LocalDate
     return null
 }
 
+// The k-th weekday wd (1 = Monday) of the month of `month`, k = -1 for the last one; null when the month has none.
+fun nthWeekday(month: LocalDate, k: Int, wd: Int): LocalDate? {
+    val days = month.lengthOfMonth()
+    val day = if (k > 0) 1 + (wd - month.withDayOfMonth(1).dayOfWeek.value + 7) % 7 + (k - 1) * 7
+    else days - (month.withDayOfMonth(days).dayOfWeek.value - wd + 7) % 7
+    return if (day <= days) month.withDayOfMonth(day) else null
+}
+
 // First occurrence strictly after `after` (epoch ms) of a series starting at `start` ("YYYY-MM-DD[THH:MM]").
 fun nextOccurrence(start: String, repeat: String?, until: LocalDate?, skip: Set<LocalDate>, after: Long): Long? {
     val startDay = LocalDate.parse(start.take(10))
@@ -201,7 +225,7 @@ fun nextOccurrence(start: String, repeat: String?, until: LocalDate?, skip: Set<
     if (startMs > after) return if (nextDay(startDay, repeat, startDay, until, skip) == startDay) startMs else firstAfterDay(startDay, time, repeat, until, skip, startMs)
     if (repeat == null) return null
     if (repeat.startsWith("hours:")) {
-        val step = (repeat.substringAfter(':').toIntOrNull()?.coerceAtLeast(1) ?: 1) * 3_600_000L
+        val step = repeatN(repeat) * 3_600_000L
         val t = startMs + ((after - startMs) / step + 1) * step
         return if (until != null && t.toLocal().toLocalDate().isAfter(until)) null else t
     }
@@ -275,8 +299,15 @@ fun completeTask(t: JSONObject, now: Long) {
     val due = t.str("due"); val repeat = t.str("repeat")
     if (repeat != null && due != null) {
         val until = t.date("until")
-        val next = if (due.length > 10) {
-            nextOccurrence(due, repeat, until, emptySet(), maxOf(dueTime(due).millis(), now))?.let { stamp(it) }
+        val next = if (repeat.endsWith(":after")) { // "every 3 h after the last one": counted from the tick
+            val kind = repeat.substringBefore(':'); val n = repeatN(repeat)
+            (if (kind == "hours") stamp(now + n * 3_600_000L)
+            else now.toLocal().toLocalDate().plusDays(if (kind == "weeks") 7L * n else n.toLong()).toString() + (if (due.length > 10) due.substring(10, 16) else ""))
+                .takeIf { until == null || !LocalDate.parse(it.take(10)).isAfter(until) }
+        } else if (due.length > 10) {
+            // The planned time stays, even when a DST change skips it once (02:30 would become 03:30 for good).
+            nextOccurrence(due, repeat, until, emptySet(), maxOf(dueTime(due).millis(), now))
+                ?.let { if (repeat.startsWith("hours:")) stamp(it) else it.toLocal().toLocalDate().toString() + due.substring(10, 16) }
         } else {
             val day = LocalDate.parse(due); val today = now.toLocal().toLocalDate()
             nextDay(day, repeat, maxOf(day, today).plusDays(1), until, emptySet())?.toString()
@@ -290,25 +321,66 @@ fun completeTask(t: JSONObject, now: Long) {
     t.put("done", true)
 }
 
-// Same time, one day later (from today for a late task).
-fun postponeTask(t: JSONObject, now: Long) {
+// Same time, `days` later (from today for a late task).
+fun postponeTask(t: JSONObject, now: Long, days: Long = 1) {
     val due = t.str("due"); val today = now.toLocal().toLocalDate()
     val day = due?.let { LocalDate.parse(it.take(10)) }?.takeIf { it.isAfter(today) } ?: today
-    t.put("due", day.plusDays(1).toString() + (due?.takeIf { it.length > 10 }?.let { it.substring(10, 16) } ?: ""))
+    keepWeekday(t)
+    t.put("due", day.plusDays(days).toString() + (due?.takeIf { it.length > 10 }?.let { it.substring(10, 16) } ?: ""))
 }
+
+// "Tomorrow 9:00" from a notification: a task without a time stays without one.
+fun tomorrowMorning(t: JSONObject, now: Long) {
+    keepWeekday(t)
+    t.put("due", now.toLocal().toLocalDate().plusDays(1).toString() + if ((t.str("due")?.length ?: 0) > 10) "T09:00" else "")
+}
+
+// A plain weekly series that moves keeps its weekday.
+private fun keepWeekday(t: JSONObject) {
+    val due = t.str("due") ?: return
+    if (t.str("repeat") == "weekly") t.put("repeat", "weekly:" + LocalDate.parse(due.take(10)).dayOfWeek.value)
+}
+
+// Overdue: a day before today, or a time already past.
+fun isLate(t: JSONObject, now: Long): Boolean = runCatching {
+    val due = t.str("due") ?: return false
+    if (due.length > 10) dueTime(due).millis() < now else LocalDate.parse(due).isBefore(now.toLocal().toLocalDate())
+}.getOrDefault(false)
+
+// "Remind me again until I answer" (same rule as pc/rules.js): when ring number `count` (0 = the first) rings again, or
+// null: every `nag` min, `times` times, or with times = 0 three quick ones then hourly; never later than 24 h after the first.
+fun nagAt(nag: Int, times: Int, count: Int, first: Long, now: Long): Long? {
+    val at = now + (if (times > 0 || count < 3) nag else 60) * 60_000L
+    return at.takeIf { nag > 0 && (times == 0 || count < times) && at - first <= DAY_MS }
+}
+
+// A phone number in a task (same rule as the interface's links: 9 to 15 digits, not a date, not inside a link), or null.
+fun phoneIn(text: String): String? = Regex("""\+?\d[\d .-]{7,16}\d""").findAll(text.replace(Regex("""https?://\S+|www\.\S+|[\w.+-]+@[\w-]+(\.[\w-]+)+"""), " "))
+    .map { it.value }.firstOrNull { v -> v.count { it.isDigit() } in 9..15 && !Regex("""^\d{4}-\d{2}-\d{2}""").containsMatchIn(v) }
+    ?.replace(Regex("""[^\d+]"""), "")
 
 // ---------- settings (written by the interface) ----------
 
 class Settings(private val json: JSONObject) {
     val lang: String get() = json.optString("lang", "auto")
     val snooze: Int get() = json.optInt("snooze", 10).coerceIn(1, 240)
-    val nag: Int get() = json.optInt("nag", 0).coerceIn(0, 240)
-    val nagTimes: Int get() = json.optInt("nagTimes", 3).coerceIn(1, 20)
+    val nag: Int get() = json.optInt("nag", 10).coerceIn(0, 240)
+    val nagTimes: Int get() = json.optInt("nagTimes", 3).coerceIn(0, 20) // 0: until answered
     val privateNotifs: Boolean get() = json.optBoolean("privateNotifs")
     val lock: Boolean get() = json.optBoolean("lock")
+    val sober: Boolean get() = json.optBoolean("sober") // neutral texts: no emoji, no "tu"
+    val loudAll: Boolean get() = json.optBoolean("loudAll")
     val summary: LocalTime? get() = json.str("summary")?.let { runCatching { LocalTime.parse(it) }.getOrNull() }
     val focusUntil: Long? get() = json.optJSONObject("focus")?.optLong("until")?.takeIf { it > 0 }
     val focusTitle: String get() = json.optJSONObject("focus")?.optString("title").orEmpty()
+    val focusPause: Boolean get() = json.optJSONObject("focus")?.optBoolean("pause") == true
+
+    // Quiet hours, "22:00" to "07:00" may wrap midnight; empty means none.
+    fun quiet(now: Long): Boolean {
+        val from = json.str("quietFrom") ?: return false; val to = json.str("quietTo") ?: return false
+        val hm = stamp(now).substring(11)
+        return if (from <= to) hm >= from && hm < to else hm >= from || hm < to
+    }
 }
 
 fun settings(prefs: SharedPreferences) = Settings(runCatching { JSONObject(prefs.getString(SETTINGS_KEY, null) ?: "{}") }.getOrDefault(JSONObject()))
@@ -346,4 +418,62 @@ fun today(doc: JSONObject, now: Long): List<Line> {
         out += Line(if (s == day) e.str("time")?.let { runCatching { LocalTime.parse(it) }.getOrNull() } else null, e.optString("text"), false, false, e.optString("id"))
     }
     return out.sortedWith(compareBy<Line>({ !it.late }, { it.time ?: LocalTime.MIN }))
+}
+
+// ---------- daily copy to a folder the user chose (same files as the PC app) ----------
+
+object Backup {
+    private val NAME = Regex("""^mon-orga-\d{4}-\d{2}-\d{2}\.json$""")
+    private const val RW = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+
+    // Keeps the permission across restarts and makes the first copy now. Returns the folder's name.
+    fun setFolder(ctx: Context, tree: Uri): String {
+        val old = ctx.prefs().getString("backupUri", null)
+        ctx.contentResolver.takePersistableUriPermission(tree, RW)
+        if (old != null && old != tree.toString()) clear(ctx)
+        val name = runCatching { query(ctx, DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))).values.first() }
+            .getOrNull() ?: tree.lastPathSegment.orEmpty().substringAfterLast(':').substringAfterLast('/')
+        ctx.prefs().edit().putString("backupUri", tree.toString()).putString("backupName", name).putLong("backupLast", 0).commit()
+        later(ctx)
+        return name
+    }
+
+    fun clear(ctx: Context) {
+        val p = ctx.prefs()
+        p.getString("backupUri", null)?.let { runCatching { ctx.contentResolver.releasePersistableUriPermission(Uri.parse(it), RW) } }
+        p.edit().remove("backupUri").remove("backupName").remove("backupLast").apply()
+    }
+
+    fun info(ctx: Context): String = JSONObject().put("folder", ctx.prefs().getString("backupName", null) ?: JSONObject.NULL)
+        .put("last", ctx.prefs().getLong("backupLast", 0)).toString()
+
+    // At most once a day, off the main thread (the folder may be slow); a failure leaves "last" as is, so it is tried again.
+    fun later(ctx: Context, now: Long = System.currentTimeMillis()) {
+        if (!due(ctx.prefs(), now)) return
+        val app = ctx.applicationContext
+        thread { synchronized(this) { runCatching { if (due(app.prefs(), now)) write(app, now) } } }
+    }
+
+    private fun due(p: SharedPreferences, now: Long) = p.getString("backupUri", null) != null &&
+        p.getLong("backupLast", 0).let { it == 0L || it.toLocal().toLocalDate() != now.toLocal().toLocalDate() }
+
+    private fun write(ctx: Context, now: Long) {
+        val p = ctx.prefs(); val tree = Uri.parse(p.getString("backupUri", null) ?: return)
+        val cr = ctx.contentResolver; val root = DocumentsContract.getTreeDocumentId(tree)
+        val files = query(ctx, DocumentsContract.buildChildDocumentsUriUsingTree(tree, root)).entries.associate { (id, name) -> name to DocumentsContract.buildDocumentUriUsingTree(tree, id) }
+        val name = "mon-orga-${now.toLocal().toLocalDate()}.json"
+        val file = files[name] ?: DocumentsContract.createDocument(cr, DocumentsContract.buildDocumentUriUsingTree(tree, root), "application/json", name) ?: return
+        val data = loadDoc(p).put("settings", runCatching { JSONObject(p.getString(SETTINGS_KEY, null) ?: "{}") }.getOrDefault(JSONObject()))
+        cr.openOutputStream(file, "wt")!!.use { it.write(data.toString().toByteArray()) }
+        p.edit().putLong("backupLast", now).commit()
+        oldBackups(files.keys + name).forEach { n -> files[n]?.let { runCatching { DocumentsContract.deleteDocument(cr, it) } } }
+    }
+
+    // Our daily files beyond the 14 newest.
+    fun oldBackups(names: Collection<String>): List<String> = names.filter { NAME.matches(it) }.distinct().sortedDescending().drop(14)
+
+    // document id -> display name
+    private fun query(ctx: Context, uri: Uri): Map<String, String> = ctx.contentResolver.query(uri,
+        arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)
+        ?.use { c -> generateSequence { if (c.moveToNext()) c.getString(0) to c.getString(1).orEmpty() else null }.toMap() }.orEmpty()
 }

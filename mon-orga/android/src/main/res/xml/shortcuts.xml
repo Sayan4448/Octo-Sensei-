@@ -11,4 +11,7 @@
     <shortcut android:enabled="true" android:icon="@drawable/sc_event" android:shortcutId="event" android:shortcutShortLabel="@string/shortcut_event">
         <intent android:action="com.sayan.todo.ADD_EVENT" android:targetClass="com.sayan.todo.MainActivity" android:targetPackage="com.sayan.todo" />
     </shortcut>
+    <shortcut android:enabled="true" android:icon="@drawable/sc_voice_note" android:shortcutId="voice-note" android:shortcutShortLabel="@string/shortcut_voice_note">
+        <intent android:action="com.sayan.todo.VOICE_NOTE" android:targetClass="com.sayan.todo.MainActivity" android:targetPackage="com.sayan.todo" />
+    </shortcut>
 </shortcuts>

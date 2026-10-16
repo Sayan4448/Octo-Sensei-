@@ -19,27 +19,48 @@
             android:layout_weight="1"
             android:maxLines="1"
             android:paddingStart="4dp"
+            android:text="@string/widget_title"
             android:textColor="@color/primary"
             android:textSize="16sp"
             android:textStyle="bold" />
 
         <ImageView
+            android:id="@+id/widget_voice"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:contentDescription="@string/shortcut_voice"
+            android:padding="12dp"
+            android:src="@drawable/ic_widget_mic" />
+
+        <ImageView
             android:id="@+id/widget_add"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:contentDescription="@string/add"
-            android:padding="8dp"
+            android:padding="12dp"
             android:src="@drawable/ic_widget_add" />
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/widget_body"
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:ellipsize="end"
-        android:lineSpacingExtra="3dp"
-        android:paddingStart="4dp"
-        android:paddingTop="4dp"
-        android:textColor="@color/on_surface"
-        android:textSize="14sp" />
+        android:layout_height="match_parent">
+
+        <ListView
+            android:id="@+id/widget_list"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:divider="@null"
+            android:dividerHeight="0dp" />
+
+        <!-- Nothing today, or how many things when the content is private. -->
+        <TextView
+            android:id="@+id/widget_empty"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:paddingStart="4dp"
+            android:paddingTop="4dp"
+            android:text="@string/widget_empty"
+            android:textColor="@color/on_surface"
+            android:textSize="14sp" />
+    </FrameLayout>
 </LinearLayout>

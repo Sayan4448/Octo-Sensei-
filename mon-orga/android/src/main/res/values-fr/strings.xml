@@ -3,37 +3,60 @@
     <string name="ch_important">Rappels importants</string>
     <string name="ch_alarm">Mode réveil</string>
     <string name="ch_summary">Résumé du matin</string>
+    <string name="ch_quiet">Rappels de nuit (vibreur)</string>
     <string name="ch_pc">Version PC</string>
     <string name="act_done">Fait</string>
     <string name="act_snooze">+%d min</string>
-    <string name="act_tomorrow">Demain</string>
     <string name="act_stop">Arrêter</string>
     <string name="act_ok">OK</string>
+    <string name="act_later">Reporter…</string>
+    <string name="act_call">Appeler</string>
+    <string name="act_route">Itinéraire</string>
+    <string name="act_undo">Annuler</string>
+    <string name="act_all_tomorrow">Tout à demain</string>
+    <string name="tonight_at">Ce soir %s</string>
+    <string name="same_time_tomorrow">Demain même heure</string>
+    <string name="undo_done">✓ Fait : %s</string>
+    <string name="undo_done_sober">Fait : %s</string>
+    <string name="in_time">dans %s</string>
+    <string name="late_by">en retard de %s</string>
+    <plurals name="dur_days"><item quantity="one">%d jour</item><item quantity="many">%d jours</item><item quantity="other">%d jours</item></plurals>
+    <string name="overdue">(en retard)</string>
     <string name="notif_private">Rappel Mon Orga</string>
     <string name="all_day">Journée</string>
     <string name="tomorrow_at">Demain %s</string>
     <string name="late_since">En retard depuis %s</string>
     <string name="more_n">+%d autres</string>
+    <plurals name="rang_together"><item quantity="one">%d rappel</item><item quantity="many">%d rappels</item><item quantity="other">%d rappels</item></plurals>
     <plurals name="missed"><item quantity="one">%d rappel manqué</item><item quantity="many">%d rappels manqués</item><item quantity="other">%d rappels manqués</item></plurals>
     <plurals name="summary_title"><item quantity="one">Ta journée : %d chose</item><item quantity="many">Ta journée : %d choses</item><item quantity="other">Ta journée : %d choses</item></plurals>
+    <plurals name="summary_title_sober"><item quantity="one">Aujourd’hui : %d élément</item><item quantity="many">Aujourd’hui : %d éléments</item><item quantity="other">Aujourd’hui : %d éléments</item></plurals>
     <plurals name="late"><item quantity="one">%d en retard</item><item quantity="many">%d en retard</item><item quantity="other">%d en retard</item></plurals>
     <string name="focus_done">C’est la pause !</string>
+    <string name="focus_done_sober">Pause conseillée</string>
+    <string name="focus_pause">Pause terminée, on y retourne ?</string>
+    <string name="focus_pause_sober">Pause terminée</string>
     <string name="focus_text">25 minutes de focus sur « %s »</string>
     <string name="test_title">Rappel de test</string>
     <string name="test_text">Les rappels fonctionnent ✓</string>
+    <string name="test_text_sober">Les rappels fonctionnent.</string>
     <string name="pc_active">Version PC active</string>
     <string name="pc_text">Sur le PC : %1$s · code %2$s</string>
     <string name="pc_no_wifi">Pas de Wi-Fi : connecte le téléphone au même réseau que le PC</string>
+    <string name="pc_no_wifi_sober">Pas de Wi-Fi : connectez le téléphone au même réseau que le PC</string>
     <string name="lock_title">Déverrouiller Mon Orga</string>
     <string name="lock_button">Déverrouiller</string>
     <string name="voice_prompt">Que faut-il faire ?</string>
     <string name="widget_title">Aujourd’hui</string>
     <string name="widget_empty">Rien de prévu aujourd’hui</string>
     <string name="widget_desc">Tâches et rendez-vous du jour</string>
+    <plurals name="widget_tasks"><item quantity="one">%d tâche aujourd’hui</item><item quantity="many">%d tâches aujourd’hui</item><item quantity="other">%d tâches aujourd’hui</item></plurals>
+    <plurals name="widget_events"><item quantity="one">%d rendez-vous</item><item quantity="many">%d rendez-vous</item><item quantity="other">%d rendez-vous</item></plurals>
     <string name="add">Ajouter</string>
     <string name="no_app">Aucune app ne peut ouvrir ceci</string>
     <string name="shortcut_task">Nouvelle tâche</string>
     <string name="shortcut_note">Nouvelle note</string>
     <string name="shortcut_event">Nouveau rendez-vous</string>
     <string name="shortcut_voice">Dicter une tâche</string>
+    <string name="shortcut_voice_note">Note vocale</string>
 </resources>

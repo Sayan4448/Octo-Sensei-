@@ -18,6 +18,9 @@ contextBridge.exposeInMainWorld('desktop', {
   syncScan: () => call('syncScan'),
   syncNow: () => call('syncNow'),
   syncForget: () => call('syncForget'),
+  chooseBackupFolder: () => call('chooseBackupFolder'),
+  clearBackupFolder: () => call('clearBackupFolder'),
+  backupInfo: () => call('backupInfo'),
   onChange: f => ipcRenderer.on('changed', () => f()),
   onAction: f => ipcRenderer.on('action', (e, a) => f(a)),
 })

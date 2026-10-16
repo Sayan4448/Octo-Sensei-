@@ -1,16 +1,44 @@
-# A tag like v5.0.0 builds the phone app and the PC apps, then publishes them as a GitHub release.
+# Builds the phone app and the PC apps, then publishes them as a GitHub release.
+# Two ways to start it: push a tag like v5.0.0, or Actions → Release → Run workflow
+# (empty version = the one in mon-orga/pc/package.json).
 name: Release
 
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version, par exemple 5.0.0 (vide = celle de mon-orga/pc/package.json)
+        required: false
 
 permissions:
   contents: read
 
 jobs:
-  android:
+  version:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - id: v
+        env:
+          INPUT: ${{ inputs.version }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ]; then v="${GITHUB_REF_NAME#v}"
+          elif [ -n "$INPUT" ]; then v="${INPUT#v}"
+          else v=$(node -p "require('./mon-orga/pc/package.json').version"); fi
+          if ! [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "::error::Version invalide : $v (attendu : 5.0.0)"; exit 1; fi
+          echo "tag=v$v" >> "$GITHUB_OUTPUT"
+
+  android:
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.version.outputs.tag }}
     defaults:
       run:
         working-directory: mon-orga/android
@@ -23,14 +51,17 @@ jobs:
           distribution: temurin
           java-version: 21
       - run: ./gradlew testDebugUnitTest assembleRelease --no-daemon
-      - run: mkdir -p ../out && cp build/outputs/apk/release/MonOrga-release.apk "../out/Mon-Orga-${GITHUB_REF_NAME#v}.apk"
+      - run: mkdir -p ../out && cp build/outputs/apk/release/MonOrga-release.apk "../out/Mon-Orga-${TAG#v}.apk"
       - uses: actions/upload-artifact@v4
         with:
           name: android
           path: mon-orga/out/*.apk
 
   windows:
+    needs: version
     runs-on: windows-latest
+    env:
+      TAG: ${{ needs.version.outputs.tag }}
     defaults:
       run:
         working-directory: mon-orga/pc
@@ -42,7 +73,7 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
-      - run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
+      - run: npm version "${TAG#v}" --no-git-tag-version --allow-same-version
         shell: bash
       - run: npm run dist:win
       - uses: actions/upload-artifact@v4
@@ -51,7 +82,10 @@ jobs:
           path: mon-orga/pc/dist/*.exe
 
   linux:
+    needs: version
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.version.outputs.tag }}
     defaults:
       run:
         working-directory: mon-orga/pc
@@ -63,7 +97,7 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
-      - run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
+      - run: npm version "${TAG#v}" --no-git-tag-version --allow-same-version
       - run: npm run dist:linux
       - uses: actions/upload-artifact@v4
         with:
@@ -71,10 +105,13 @@ jobs:
           path: mon-orga/pc/dist/*.AppImage
 
   publish:
-    needs: [android, windows, linux]
+    needs: [version, android, windows, linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      TAG: ${{ needs.version.outputs.tag }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -83,6 +120,9 @@ jobs:
         with:
           path: assets
           merge-multiple: true
-      - run: gh release create "$GITHUB_REF_NAME" assets/* --repo "$GITHUB_REPOSITORY" --title "Mon Orga ${GITHUB_REF_NAME#v}" --notes-file mon-orga/RELEASE_NOTES.md
-        env:
-          GH_TOKEN: ${{ github.token }}
+      # Creates the release (and its tag, from the Run workflow button), or adds the files to an existing one.
+      - run: |
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Mon Orga ${TAG#v}" --notes-file mon-orga/RELEASE_NOTES.md
+          fi
+          gh release upload "$TAG" assets/* --repo "$GITHUB_REPOSITORY" --clobber

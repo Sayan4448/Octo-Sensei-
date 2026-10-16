@@ -1,7 +1,7 @@
 {
   "name": "mon-orga",
   "productName": "Mon Orga",
-  "version": "5.0.0",
+  "version": "5.1.0",
   "description": "Mon Orga : tâches, notes et agenda, synchronisés avec le téléphone",
   "author": "Sayan",
   "license": "UNLICENSED",
@@ -21,6 +21,7 @@
   "build": {
     "appId": "com.sayan.monorga",
     "productName": "Mon Orga",
+    "publish": null,
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -29,6 +30,7 @@
       "main.js",
       "preload.js",
       "sync.js",
+      "rules.js",
       "package.json",
       "build/icon.png",
       {

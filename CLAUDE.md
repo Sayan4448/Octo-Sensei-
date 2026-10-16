@@ -13,7 +13,7 @@ L'app de Sayan : une seule interface web (`mon-orga/web/src`, sans dépendance) 
 
 - Avant de pousser : `cd mon-orga/web && TZ=Europe/Paris npm test`, `cd mon-orga/android && ./gradlew testDebugUnitTest assembleDebug` (JDK 21, `ANDROID_HOME` défini), `cd mon-orga/pc && npm test` (`xvfb-run -a` sans écran). La CI lance les mêmes.
 - Une règle de dates ou de rappels change ? Elle existe en double (`web/src/store.js` et `android/.../Store.kt`) : change les deux et ajoute le cas dans `web/test/fixtures.json`, lu par les deux suites de tests.
-- Publier : tag `vX.Y.Z` sur `main` → le workflow Release construit l'APK et les apps PC et crée la release. Les fichiers construits ne sont jamais commités. `android/debug.keystore` reste dans le dépôt : c'est lui qui permet d'installer une version par-dessus la précédente.
+- Publier : workflow Release (Actions → Release → Run workflow, ou tag `vX.Y.Z` sur `main`) → il construit l'APK et les apps PC et crée la release. Une session Claude Code sur le web ne peut pas pousser de tag (refus 403) : c'est Sayan qui lance la publication. Les fichiers construits ne sont jamais commités. `android/debug.keystore` reste dans le dépôt : c'est lui qui permet d'installer une version par-dessus la précédente.
 
 ## Modifier ce dépôt
 

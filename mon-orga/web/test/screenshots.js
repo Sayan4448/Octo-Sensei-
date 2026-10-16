@@ -39,7 +39,7 @@ const demo = {
     const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 2, locale: 'fr-FR', timezoneId: 'Europe/Paris', colorScheme: dark ? 'dark' : 'light' })
     await ctx.addInitScript(d => {
       localStorage.setItem('mon-orga-doc', JSON.stringify(d))
-      localStorage.setItem('mon-orga-settings', JSON.stringify({ welcomed: true }))
+      localStorage.setItem('mon-orga-settings', JSON.stringify({ welcomed: true, news: 99 }))
     }, demo)
     const page = await ctx.newPage()
     await page.clock.setFixedTime(NOW)

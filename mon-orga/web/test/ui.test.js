@@ -82,7 +82,7 @@ test('the interface, end to end', { skip: !playwright && 'playwright is not inst
     })
     await t.test('agenda: a weekly event, one date removed', async () => {
       await page.click('#nav [data-tab="agenda"]')
-      await page.click('#fab')
+      await page.click('h2.sec [data-act="fab"]')
       await page.fill('.title-input', 'Foot')
       await page.selectOption('[data-f="repeatKind"]', 'weekly')
       await page.click('[data-act="close"]')
@@ -97,6 +97,30 @@ test('the interface, end to end', { skip: !playwright && 'playwright is not inst
       await page.reload(); await page.waitForSelector('#addInput')
       assert.ok((await titles()).includes('Sortir les poubelles'))
     })
+    await t.test('progress survives a restart, an undone tick does not count', async () => {
+      await page.click('#nav [data-tab="plus"]')
+      const total = async () => +(await page.textContent('.stats div:nth-child(4) b'))
+      assert.equal(await total(), 1) // Médicament (the undone "Appeler le garage" is not counted)
+      await page.click('#nav [data-tab="agenda"]')
+      await page.fill('#addInput', 'Dentiste mardi 14h'); await page.press('#addInput', 'Enter')
+      assert.ok(await page.$('.row.event[data-day="2026-10-20"]:has-text("Dentiste")'))
+      assert.match(await page.textContent('.row.event[data-day="2026-10-20"]:has-text("Dentiste") .when'), /14:00/)
+    })
+    await t.test('no raw translation key on screen', async () => {
+      const keys = await page.evaluate(() => Object.keys(window.I18N.fr).filter(k => k.length > 4 && /[A-Z_]/.test(k)))
+      for (const tab of ['tasks', 'notes', 'agenda', 'plus']) {
+        await page.click('#nav [data-tab="' + tab + '"]')
+        const text = await page.textContent('body')
+        assert.deepEqual(keys.filter(k => new RegExp('(^|[^A-Za-z0-9_])' + k + '($|[^A-Za-z0-9_])').test(text)), [], tab)
+      }
+      await page.click('#nav [data-tab="tasks"]')
+      await page.click('.row.task:has-text("Sortir les poubelles") .body')
+      await page.selectOption('[data-f="repeatKind"]', 'nth')
+      const text = await page.textContent('#sheet')
+      assert.deepEqual(keys.filter(k => text.indexOf(k) >= 0), [], 'editor')
+      assert.match(text, /3e|1er|2e|dernier/)
+      await page.click('[data-act="close"]')
+    })
     await t.test('English and sober mode', async () => {
       await page.click('#nav [data-tab="plus"]')
       await page.click(`[data-k="lang"][data-v='"en"']`)
@@ -106,6 +130,107 @@ test('the interface, end to end', { skip: !playwright && 'playwright is not inst
       assert.equal(await page.textContent('#title'), 'Tasks')
       await page.click('.row.task:has-text("Appeler le garage") .check')
       assert.doesNotMatch(await page.textContent('#snack'), /[\u{1F300}-\u{1FAFF}☀-➿]/u)
+    })
+    assert.deepEqual(errors, [])
+  } finally {
+    await browser.close(); server.close()
+  }
+})
+
+test('the 5.1 tools: long press, imports, repeats, backups', { skip: !playwright && 'playwright is not installed' }, async t => {
+  const server = await serve(0)
+  const url = 'http://127.0.0.1:' + server.address().port + '/index.html'
+  const browser = await playwright.chromium.launch()
+  const ctx = await browser.newContext({ viewport: { width: 412, height: 860 }, locale: 'fr-FR', timezoneId: 'Europe/Paris', hasTouch: true })
+  const t0 = NOW.getTime(); const old = t0 - 40 * 86400000
+  await ctx.addInitScript(([t0, old]) => {
+    if (sessionStorage.getItem('seeded')) return
+    sessionStorage.setItem('seeded', '1')
+    const tasks = Array.from({ length: 10 }, (_, i) => ({ id: 'old' + i, text: 'Ancienne ' + i, createdAt: old, updatedAt: old }))
+    tasks.push({ id: 'p', text: 'Piscine', due: '2026-10-16T18:00', remind: [0], createdAt: old, updatedAt: old })
+    localStorage.setItem('mon-orga-doc', JSON.stringify({ tasks: tasks, history: [(t0 - 86400000) + ':p'] }))
+    localStorage.setItem('mon-orga-settings', JSON.stringify({ welcomed: true, news: 99 }))
+  }, [t0, old])
+  const page = await ctx.newPage()
+  page.setDefaultTimeout(5000)
+  const errors = []
+  page.on('pageerror', e => errors.push(e.message))
+  page.on('console', m => { if (m.type() === 'error') errors.push(m.text()) })
+  await page.clock.setFixedTime(NOW)
+  try {
+    await page.goto(url); await page.waitForSelector('#addInput')
+    await t.test('no backup for 40 days: a reminder, "later" hides it', async () => {
+      assert.match(await page.textContent('.warn-banner'), /sauvegard/i)
+      await page.click('.warn-banner [data-act="backup-later"]')
+      assert.equal(await page.$('.warn-banner'), null)
+    })
+    await t.test('long press on a task moves it in one gesture', async () => {
+      const body = '.row.task:has-text("Piscine") .body'
+      await page.dispatchEvent(body, 'pointerdown', { button: 0, pointerType: 'touch', clientX: 100, clientY: 300 })
+      await page.waitForSelector('.menu-item') // after about half a second
+      await page.dispatchEvent(body, 'pointerup', { button: 0, pointerType: 'touch' })
+      await page.dispatchEvent('.scrim', 'click') // the click of the release does not close the menu
+      assert.ok(await page.$('.menu-item'))
+      await page.click('.dlg-actions button') // Annuler
+      assert.equal(await page.$('#sheet:not([hidden])'), null)
+      await page.click(body, { button: 'right' })
+      await page.click('.menu-item:has-text("+2 jours")')
+      assert.match(await page.textContent('.row.task:has-text("Piscine")'), /18:00/)
+      assert.match(await page.textContent('.row.task:has-text("Piscine")'), /Dimanche|dim/i)
+    })
+    await t.test('repeats: every 3 months, the 1st Monday, 3 h after the tick', async () => {
+      await page.click('.row.task:has-text("Piscine") .body')
+      await page.selectOption('[data-f="repeatKind"]', 'months')
+      assert.equal(await page.inputValue('[data-f="repeatN"]'), '3')
+      await page.selectOption('[data-f="repeatKind"]', 'nth')
+      await page.selectOption('[data-f="nthK"]', '1'); await page.selectOption('[data-f="nthD"]', '1')
+      assert.equal(await page.inputValue('[data-f="dueDay"]'), '2026-11-02') // moved to the first 1st Monday
+      await page.click('[data-act="close"]')
+      assert.match(await page.textContent('.row.task:has-text("Piscine")'), /Le 1er lundi du mois/)
+      await page.click('.row.task:has-text("Piscine") .body')
+      await page.selectOption('[data-f="repeatKind"]', 'hours')
+      await page.check('[data-f="repeatAfter"]')
+      await page.click('[data-act="due-time"][data-v="12:00"]')
+      await page.click('[data-act="time-step"][data-v="15"]')
+      assert.equal(await page.inputValue('[data-f="dueTime"]'), '12:15')
+      await page.fill('.step-new', '')
+      await page.focus('.step-new')
+      await page.evaluate(() => { const e = new ClipboardEvent('paste', { clipboardData: new DataTransfer(), bubbles: true, cancelable: true }); e.clipboardData.setData('text', '- Maillot\n- Bonnet\n- Serviette'); document.querySelector('.step-new').dispatchEvent(e) })
+      assert.equal(await page.$$eval('.steps li', els => els.length), 3)
+      await page.click('[data-act="close"]')
+      assert.match(await page.textContent('.row.task:has-text("Piscine")'), /après la coche/)
+    })
+    await t.test('a calendar file and a picture shared by another app', async () => {
+      const ics = 'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:club\r\nSUMMARY:Entraînement\r\nDTSTART:20261020T180000\r\nRRULE:FREQ=WEEKLY\r\nEND:VEVENT\r\nEND:VCALENDAR'
+      await page.evaluate(text => window.app.action({ type: 'ics', text: text }), ics)
+      assert.match(await page.textContent('#snack'), /1 ajoutés, 0 mis à jour/)
+      await page.evaluate(text => window.app.action({ type: 'ics', text: text }), ics)
+      assert.match(await page.textContent('#snack'), /0 ajoutés, 0 mis à jour/) // no duplicate
+      const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+      await page.evaluate(src => window.app.action({ type: 'image', src: src, text: 'Ticket de caisse' }), png)
+      await page.waitForSelector('#sheet .photos img')
+      await page.click('[data-act="close"]')
+    })
+    await t.test('a backup file: replace puts back exactly its content, undo too', async () => {
+      await page.click('#nav [data-tab="plus"]')
+      const file = { tasks: [{ id: 'b1', text: 'Depuis la sauvegarde', updatedAt: t0 - 1000 }], notes: [], events: [], settings: { evening: '18:00' } }
+      const chooser = page.waitForEvent('filechooser')
+      await page.click('[data-act="import-json"]')
+      await (await chooser).setFiles({ name: 'mon-orga.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(file)) })
+      await page.click('.dlg-actions button:has-text("Remplacer")')
+      await page.click('.dlg-actions button:has-text("Oui")') // its settings too
+      await page.click('#nav [data-tab="tasks"]')
+      assert.deepEqual(await page.$$eval('#main .row.task .title', els => els.map(e => e.textContent)), ['Depuis la sauvegarde'])
+      await page.click('#nav [data-tab="plus"]')
+      assert.equal(await page.inputValue('select[data-set="evening"]'), '"18:00"')
+    })
+    await t.test('a text file becomes one note per block', async () => {
+      const chooser = page.waitForEvent('filechooser')
+      await page.click('[data-act="import-json"]')
+      await (await chooser).setFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Recette\nfarine\n———\nCodes\nwifi 1234\n\n\n\nIdées\ncadeau') })
+      await page.click('.dlg-actions button:has-text("3 notes")')
+      await page.click('#nav [data-tab="notes"]')
+      assert.equal(await page.$$eval('.card.note', els => els.length), 3) // "replace" took the picture note away
     })
     assert.deepEqual(errors, [])
   } finally {
