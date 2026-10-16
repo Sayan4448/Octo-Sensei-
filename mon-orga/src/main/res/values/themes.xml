@@ -1,0 +1,9 @@
+<resources>
+    <!-- Material 3 baseline palette, light and dark. -->
+    <style name="AppTheme" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- Framework CalendarView draws its selected day with colorControlActivated. -->
+        <item name="android:colorControlActivated">?attr/colorPrimary</item>
+    </style>
+
+    <color name="ic_launcher_background">#6750A4</color>
+</resources>
