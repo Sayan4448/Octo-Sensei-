@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Full-screen alarm: big and simple, it may be read half asleep. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fitsSystemWindows="true"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:padding="32dp">
+
+    <TextView
+        android:id="@+id/alarm_time"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="@color/alarm_text"
+        android:textSize="72sp" />
+
+    <TextView
+        android:id="@+id/alarm_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="48dp"
+        android:gravity="center"
+        android:textColor="@color/alarm_text"
+        android:textSize="28sp"
+        android:textStyle="bold" />
+
+    <Button
+        android:id="@+id/alarm_done"
+        style="?android:attr/borderlessButtonStyle"
+        android:layout_width="match_parent"
+        android:layout_height="72dp"
+        android:background="@drawable/alarm_button"
+        android:textAllCaps="false"
+        android:textColor="@color/alarm_bg"
+        android:textSize="22sp" />
+
+    <Button
+        android:id="@+id/alarm_snooze"
+        style="?android:attr/borderlessButtonStyle"
+        android:layout_width="match_parent"
+        android:layout_height="72dp"
+        android:layout_marginTop="16dp"
+        android:background="@drawable/alarm_button_outline"
+        android:textAllCaps="false"
+        android:textColor="@color/alarm_text"
+        android:textSize="22sp" />
+
+    <Button
+        android:id="@+id/alarm_stop"
+        style="?android:attr/borderlessButtonStyle"
+        android:layout_width="match_parent"
+        android:layout_height="72dp"
+        android:layout_marginTop="16dp"
+        android:background="@drawable/alarm_button_outline"
+        android:textAllCaps="false"
+        android:textColor="@color/alarm_text"
+        android:textSize="22sp" />
+</LinearLayout>
