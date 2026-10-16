@@ -102,6 +102,13 @@ class RemindersTest {
         assertTrue(Reminders.snoozes(app).isEmpty())
     }
 
+    @Test fun remindersAtTheSameTimeRingOneByOne() {
+        store(*(1..5).map { task("t$it", "2026-10-16T09:00") }.toTypedArray())
+        prefs.edit().putLong("lastCheck", at("2026-10-16T08:00")).commit()
+        Reminders.tick(app, at("2026-10-16T09:00"))
+        assertEquals(5, notes.size)
+    }
+
     @Test fun missedRemindersAreGrouped() {
         store(*(1..5).map { task("t$it", "2026-10-16T0$it:00") }.toTypedArray())
         prefs.edit().putLong("lastCheck", at("2026-10-16T00:00")).commit()

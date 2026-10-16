@@ -76,7 +76,10 @@ object Reminders {
         prefs.edit().putLong("lastCheck", now).apply()
         snoozes.entries.removeAll { it.value <= now }
         val rings = due.filter { it.kind == "task" || it.kind == "event" }.distinctBy { it.id }
-        if (rings.size > 4) showMissed(ctx, rings, s) else rings.forEach { show(ctx, it, doc, s, now) }
+        // Several reminders at the same time ring one by one; a pile missed while the phone was off comes as one notification.
+        val (late, onTime) = rings.partition { it.at < now - 120_000 }
+        onTime.forEach { show(ctx, it, doc, s, now) }
+        if (late.size > 3) showMissed(ctx, late, s) else late.forEach { show(ctx, it, doc, s, now) }
         if (s.nag > 0) for (a in rings.filter { it.kind == "task" }) { // "remind me again until I answer"
             val count = if (a.snoozed) (nags[a.id] ?: 0) + 1 else 0
             if (count < s.nagTimes) { snoozes[a.id] = now + s.nag * 60_000L; nags[a.id] = count } else nags.remove(a.id)

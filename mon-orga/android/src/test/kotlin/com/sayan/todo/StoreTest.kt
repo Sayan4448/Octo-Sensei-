@@ -80,6 +80,7 @@ class StoreTest {
         val prefs = RuntimeEnvironment.getApplication().getSharedPreferences("t", Context.MODE_PRIVATE)
         prefs.edit().putString("tasks", "0Sortir le chien\t2026-10-17T09:00\n1Pain").putString("notes", "Ligne 1\\nLigne 2").putString("events", "2026-10-20|14:00|Dentiste").commit()
         val doc = loadDoc(prefs)
+        assertEquals(items(doc, "tasks").map { it.getString("id") }, items(loadDoc(prefs), "tasks").map { it.getString("id") }) // converted once
         val tasks = items(doc, "tasks")
         assertEquals(listOf("Sortir le chien", "Pain"), tasks.map { it.getString("text") })
         assertEquals("2026-10-17T09:00", tasks[0].getString("due"))

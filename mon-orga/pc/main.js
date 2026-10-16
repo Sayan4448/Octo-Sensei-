@@ -133,8 +133,10 @@ function tick() {
   local.lastCheck = now
   Object.keys(local.snoozes).forEach(id => { if (local.snoozes[id] <= now) delete local.snoozes[id] })
   const rings = due.filter(a => a.kind === 'task' || a.kind === 'event').filter((a, i, all) => all.findIndex(b => b.id === a.id) === i)
-  if (rings.length > 4) notify({ title: w('missed', rings.length), body: rings.slice(0, 6).map(a => a.title).join('\n') })
-  else rings.forEach(a => {
+  // Reminders due now ring one by one; a pile missed while the PC slept comes as one notification.
+  const late = rings.filter(a => a.at < now - 120000)
+  if (late.length > 3) notify({ title: w('missed', late.length), body: late.slice(0, 6).map(a => a.title).join('\n') })
+  rings.filter(a => late.length <= 3 || a.at >= now - 120000).forEach(a => {
     const item = Store.find(doc, a.id); if (!item) return
     notify({ title: a.title, body: describe(a, item), urgency: a.loud || a.important ? 'critical' : 'normal', timeoutType: a.loud ? 'never' : 'default', silent: false },
       () => sendAction({ type: 'open', id: a.id }))

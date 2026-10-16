@@ -145,7 +145,7 @@ class MainActivity : AppCompatActivity() {
         secure()
         if (mustUnlock()) lock() else web.loadUrl(START)
         Reminders.channels(this)
-        Reminders.edited(this)
+        Reminders.schedule(this) // not edited(): reminders missed while the phone was off must still ring
         Widget.update(this)
     }
 
@@ -291,7 +291,7 @@ class MainActivity : AppCompatActivity() {
             if (runCatching { JSONObject(json) }.isFailure) return
             prefs().edit().putString(SETTINGS_KEY, json).apply()
             runOnUiThread { secure() }
-            Reminders.channels(this@MainActivity); Reminders.edited(this@MainActivity); Widget.update(this@MainActivity)
+            Reminders.channels(this@MainActivity); Reminders.schedule(this@MainActivity); Widget.update(this@MainActivity)
         }
 
         @JavascriptInterface fun share(title: String, text: String) = runOnUiThread {

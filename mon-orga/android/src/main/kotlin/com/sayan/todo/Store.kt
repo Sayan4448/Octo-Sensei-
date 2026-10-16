@@ -33,7 +33,8 @@ fun Context.prefs(): SharedPreferences = getSharedPreferences(PREFS, Context.MOD
 // ---------- storage ----------
 
 fun loadDoc(prefs: SharedPreferences): JSONObject = synchronized(lock) {
-    val raw = prefs.getString(STATE_KEY, null) ?: return legacy(prefs)
+    // First start after version 4: convert once and store, so the new ids stay the same from one load to the next.
+    val raw = prefs.getString(STATE_KEY, null) ?: return legacy(prefs).also { prefs.edit().putString(STATE_KEY, it.toString()).commit() }
     try {
         JSONObject(raw)
     } catch (e: JSONException) {
