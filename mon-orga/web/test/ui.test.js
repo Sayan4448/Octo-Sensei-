@@ -82,7 +82,7 @@ test('the interface, end to end', { skip: !playwright && 'playwright is not inst
     })
     await t.test('agenda: a weekly event, one date removed', async () => {
       await page.click('#nav [data-tab="agenda"]')
-      await page.click('#fab')
+      await page.click('h2.sec [data-act="fab"]')
       await page.fill('.title-input', 'Foot')
       await page.selectOption('[data-f="repeatKind"]', 'weekly')
       await page.click('[data-act="close"]')
@@ -96,6 +96,30 @@ test('the interface, end to end', { skip: !playwright && 'playwright is not inst
     await t.test('everything is still there after a restart', async () => {
       await page.reload(); await page.waitForSelector('#addInput')
       assert.ok((await titles()).includes('Sortir les poubelles'))
+    })
+    await t.test('progress survives a restart, an undone tick does not count', async () => {
+      await page.click('#nav [data-tab="plus"]')
+      const total = async () => +(await page.textContent('.stats div:nth-child(4) b'))
+      assert.equal(await total(), 1) // Médicament (the undone "Appeler le garage" is not counted)
+      await page.click('#nav [data-tab="agenda"]')
+      await page.fill('#addInput', 'Dentiste mardi 14h'); await page.press('#addInput', 'Enter')
+      assert.ok(await page.$('.row.event[data-day="2026-10-20"]:has-text("Dentiste")'))
+      assert.match(await page.textContent('.row.event[data-day="2026-10-20"]:has-text("Dentiste") .when'), /14:00/)
+    })
+    await t.test('no raw translation key on screen', async () => {
+      const keys = await page.evaluate(() => Object.keys(window.I18N.fr).filter(k => k.length > 4 && /[A-Z_]/.test(k)))
+      for (const tab of ['tasks', 'notes', 'agenda', 'plus']) {
+        await page.click('#nav [data-tab="' + tab + '"]')
+        const text = await page.textContent('body')
+        assert.deepEqual(keys.filter(k => new RegExp('(^|[^A-Za-z0-9_])' + k + '($|[^A-Za-z0-9_])').test(text)), [], tab)
+      }
+      await page.click('#nav [data-tab="tasks"]')
+      await page.click('.row.task:has-text("Sortir les poubelles") .body')
+      await page.selectOption('[data-f="repeatKind"]', 'nth')
+      const text = await page.textContent('#sheet')
+      assert.deepEqual(keys.filter(k => text.indexOf(k) >= 0), [], 'editor')
+      assert.match(text, /3e|1er|2e|dernier/)
+      await page.click('[data-act="close"]')
     })
     await t.test('English and sober mode', async () => {
       await page.click('#nav [data-tab="plus"]')

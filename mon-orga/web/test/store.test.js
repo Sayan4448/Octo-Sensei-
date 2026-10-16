@@ -50,17 +50,34 @@ test('a yearly birthday rings next year', () => {
 
 test('sections and sort: late first, then today, tomorrow, week, later, no date, done', () => {
   const doc = S.normalize({ tasks: [
-    { id: 'nodate', text: 'a' }, { id: 'later', due: '2026-12-01' }, { id: 'late', due: '2026-10-16T08:00' },
+    { id: 'nodate', text: 'a' }, { id: 'later', due: '2026-12-01' }, { id: 'late', due: '2026-10-15T08:00' },
     { id: 'today', due: '2026-10-16T18:00' }, { id: 'todayAllDay', due: '2026-10-16' }, { id: 'tomorrow', due: '2026-10-17T09:00' },
-    { id: 'week', due: '2026-10-20' }, { id: 'done', done: true, doneAt: 5 }] })
-  assert.deepEqual(S.sortTasks(doc.tasks, NOW).map(t => t.id), ['late', 'todayAllDay', 'today', 'tomorrow', 'week', 'later', 'nodate', 'done'])
+    { id: 'week', due: '2026-10-20' }, { id: 'done', done: true, doneAt: 5 }, { id: 'starred', important: true }, { id: 'passed', due: '2026-10-16T08:00' }] })
+  assert.deepEqual(S.sortTasks(doc.tasks, NOW).map(t => t.id), ['late', 'todayAllDay', 'passed', 'today', 'starred', 'tomorrow', 'week', 'later', 'nodate', 'done'])
   assert.equal(S.sectionOf(doc.tasks[4], NOW), 'today') // an all-day task is not late on its day
+  assert.equal(S.sectionOf(doc.tasks[9], NOW), 'today') // nor a task of this morning: "late" is for the days before
+  // A night shift: with days starting at 6 h, 3 h tomorrow morning is still "today".
+  const night = S.normalize({ tasks: [{ due: '2026-10-17T03:00' }] }).tasks[0]
+  assert.deepEqual([S.sectionOf(night, NOW), S.sectionOf(night, NOW, 360)], ['tomorrow', 'today'])
 })
 
 test('postpone keeps the time and starts from today for late tasks', () => {
   assert.equal(S.postpone({ due: '2026-10-10T09:30' }, NOW).due, '2026-10-17T09:30')
   assert.equal(S.postpone({ due: '2026-10-20' }, NOW).due, '2026-10-21')
   assert.equal(S.postpone({ due: null }, NOW).due, '2026-10-17')
+  // a weekly series moved by a day keeps its weekday (Friday 16/10 -> Saturday, then Fridays again)
+  const t = S.postpone({ due: '2026-10-16T19:00', repeat: 'weekly' }, NOW)
+  assert.deepEqual([t.due, t.repeat, S.complete(t, NOW).due], ['2026-10-17T19:00', 'weekly:5', '2026-10-23T19:00'])
+})
+
+test('history: "time:id" entries survive saving, merging and undo', () => {
+  const tick = S.ms('2026-10-16T09:00') + ':t1'
+  const doc = S.normalize({ history: [tick, 12, 'junk', null] })
+  assert.deepEqual(doc.history, [tick, 12])
+  const m = S.merge({ history: [tick] }, { history: [S.ms('2026-10-15T09:00') + ':t2', tick] })
+  assert.deepEqual(m.history, [S.ms('2026-10-15T09:00') + ':t2', tick])
+  assert.equal(S.streak(m.history, NOW), 2)
+  assert.equal(S.streak([S.ms('2026-10-16T09:00') + ':t1:x'], NOW), 0)
 })
 
 test('merge: newest edit wins, deletions travel, history is a union', () => {
@@ -99,7 +116,7 @@ test('search ignores case and accents', () => {
   assert.ok(S.matches('ecole', ['Réunion à l’École']))
   assert.ok(S.matches('reu ecol', ['Réunion', 'école']))
   assert.ok(!S.matches('piscine', ['Réunion']))
-  assert.deepEqual(S.tags('Idée #Projet et #vacances2027 mais pas mail#x'), ['projet', 'vacances2027'])
+  assert.deepEqual(S.tags('Idée #Projet et #vacances2027 mais pas mail#x, voir @Karim'), ['#projet', '#vacances2027', '@karim'])
 })
 
 test('natural language, French and English', () => {
@@ -137,15 +154,81 @@ test('natural language, French and English', () => {
     ['Meeting next monday 3pm', 'Meeting', '2026-10-19T15:00', null],
     ['Dinner tonight', 'Dinner', '2026-10-16T19:00', null],
     ['Read in 10 minutes', 'Read', '2026-10-16T10:10', null],
+    ['Pause dans 4h30', 'Pause', '2026-10-16T14:30', null],
+    ['Appeler dans 1 heure et demie', 'Appeler', '2026-10-16T11:30', null],
+    ['Réunion tous les jours ouvrés à 9h', 'Réunion', '2026-10-19T09:00', 'weekdays'],
+    ['Payer la cotisation tous les 3 mois', 'Payer la cotisation', '2026-10-16', 'months:3'],
+    ['Bilan chaque trimestre', 'Bilan', '2026-10-16', 'months:3'],
+    ['Réunion le premier lundi du mois à 18h', 'Réunion', '2026-11-02T18:00', 'nth:1:1'],
+    ['Apéro le dernier vendredi du mois', 'Apéro', '2026-10-30', 'nth:-1:5'],
+    ['Rendre le rapport avant 18h', 'Rendre le rapport', '2026-10-16T18:00', null],
+    ['Sortir le chien cette nuit', 'Sortir le chien', '2026-10-16T22:00', null],
+    ['Piscine le lundi et le jeudi chaque semaine', 'Piscine', '2026-10-19', 'weekly:1,4'],
+    ['Gym on mondays and thursdays', 'Gym', '2026-10-19', 'weekly:1,4'],
+    ['Team meeting the first monday of the month at 9am', 'Team meeting', '2026-11-02T09:00', 'nth:1:1'],
   ]
   for (const [input, text, due, repeat] of cases) {
     assert.deepEqual(S.parse(input, NOW), { text, due, repeat }, input)
   }
 })
 
+test('several times at once make one task each', () => {
+  const p = S.parse('Médicament tous les jours à 8h, 12h et 19h', NOW)
+  assert.deepEqual([p.text, p.repeat, p.dues], ['Médicament', 'daily', ['2026-10-17T08:00', '2026-10-16T12:00', '2026-10-16T19:00']])
+  assert.deepEqual(S.parse('Gouttes matin, midi et soir', NOW).dues, ['2026-10-17T08:00', '2026-10-16T12:00', '2026-10-16T19:00'])
+  assert.equal(S.parse('Appeler 18h', NOW).dues, undefined)
+})
+
+test('reminders, alarm mode, priority, ranges and expiry dates in the sentence', () => {
+  const p = (x, o) => S.parse(x, NOW, o)
+  assert.deepEqual(p('Dentiste mardi 14h rappel 1 h avant'), { text: 'Dentiste', due: '2026-10-20T14:00', repeat: null, remind: [60] })
+  assert.deepEqual(p('Rappel la veille dentiste jeudi 9h').remind, [1440])
+  assert.deepEqual([p('Médicament 8h alarme').text, p('Médicament 8h alarme').loud], ['Médicament', true])
+  assert.deepEqual([p('Réveil 7h').text, p('Réveil 7h').loud], ['Réveil', true]) // the only word stays the title
+  assert.deepEqual([p('Appeler la banque !').text, p('Appeler la banque !').important], ['Appeler la banque', true])
+  assert.deepEqual([p('Service 18h-1h samedi').due, p('Service 18h-1h samedi').end], ['2026-10-17T18:00', '01:00'])
+  assert.deepEqual([p('Réunion de 9h à 12h30 jeudi').due, p('Réunion de 9h à 12h30 jeudi').end], ['2026-10-22T09:00', '12:30'])
+  assert.equal(p('Lait EXP 03/27').due, '2027-03-31') // expiry dates: the end of the month
+  assert.equal(p('Yaourts 03/2027').due, '2027-03-31')
+  assert.equal(p('RDV 12/03').due, '2027-03-12') // day first...
+  assert.equal(p('Party 10/22').due, '2026-10-22') // ...unless impossible
+  assert.equal(p('Party 03/04', { mdy: true }).due, '2027-03-04') // month first in the US
+  assert.equal(p('Ronde quai cette nuit 3h').due, '2026-10-17T03:00') // the coming night, not this morning
+})
+
+test('English: short day names, "at 7", "on the 1st"', () => {
+  const p = x => S.parse(x, NOW)
+  assert.equal(p('Dentist Thu 3pm').due, '2026-10-22T15:00')
+  assert.equal(p('Gym on thurs').due, '2026-10-22')
+  assert.equal(p('Shift 6pm-1am fri').due, '2026-10-16T18:00')
+  assert.deepEqual(p('Team call every tue and thu at 6pm').repeat, 'weekly:2,4')
+  assert.equal(p('Appeler mon frère').due, null) // "mon" is French too
+  assert.equal(p('Buy sun cream').due, null)
+  assert.equal(p('Call mum at 7').due, '2026-10-16T19:00') // 7 AM is past: the next 7 o'clock
+  assert.equal(p('Dinner at 8 tonight').due, '2026-10-16T20:00')
+  assert.deepEqual([p('Rent every month on the 1st').due, p('Rent every month on the 1st').repeat], ['2026-11-01', 'monthly'])
+  assert.equal(p('Pay bills on the 15th').due, '2026-11-15')
+})
+
+test('calendar files: monthly patterns and moved occurrences', () => {
+  const doc = S.normalize({ events: [{ id: 'q', text: 'Bilan', day: '2026-10-16', time: null, repeat: 'months:3' }, { id: 'n', text: 'Réunion', day: '2026-11-02', time: '18:00', repeat: 'nth:1:1' }] })
+  const ics = S.toIcs(doc, NOW)
+  assert.match(ics, /RRULE:FREQ=MONTHLY;INTERVAL=3/)
+  assert.match(ics, /RRULE:FREQ=MONTHLY;BYDAY=1MO/)
+  assert.deepEqual(S.fromIcs(ics, NOW).map(e => e.repeat).sort(), ['months:3', 'nth:1:1'])
+  const outlook = ['BEGIN:VCALENDAR',
+    'BEGIN:VEVENT', 'UID:w1', 'SUMMARY:Point équipe', 'DTSTART:20261019T090000', 'DTEND:20261019T093000', 'RRULE:FREQ=MONTHLY;BYDAY=MO;BYSETPOS=3', 'END:VEVENT',
+    'BEGIN:VEVENT', 'UID:w1', 'RECURRENCE-ID:20261116T090000', 'SUMMARY:Point équipe (déplacé)', 'DTSTART:20261117T140000', 'DTEND:20261117T143000', 'END:VEVENT',
+    'END:VCALENDAR'].join('\r\n')
+  const got = S.fromIcs(outlook, NOW)
+  const master = got.find(e => e.repeat); const moved = got.find(e => !e.repeat)
+  assert.deepEqual([master.repeat, master.skip, moved.day, moved.time], ['nth:3:1', ['2026-11-16'], '2026-11-17', '14:00'])
+  assert.notEqual(master.id, moved.id)
+})
+
 test('calendar files: export then import gives the events back', () => {
   const doc = S.normalize({ events: [
-    { id: 'a', text: 'Dentiste, cabinet; 2e', day: '2026-10-20', time: '14:00', end: '14:30', place: 'Lyon', remind: [15], repeat: 'weekly:1,3', until: '2026-12-31', skip: ['2026-10-26'] },
+    { id: 'a', text: 'Dentiste, cabinet; 2e', day: '2026-10-20', time: '14:00', end: '14:30', place: 'Lyon', remind: [15], repeat: 'weekly:1,3', until: '2026-12-31', skip: ['2026-10-26'], updatedAt: 1000 },
     { id: 'b', text: 'Vacances', day: '2026-10-24', time: null, endDay: '2026-11-01', remind: [0, 1440], repeat: 'yearly' },
   ], tasks: [{ id: 'c', text: 'Rendre le livre', due: '2026-10-18T10:00', remind: [0] }] })
   const ics = S.toIcs(doc, NOW)
@@ -157,8 +240,21 @@ test('calendar files: export then import gives the events back', () => {
   assert.deepEqual([a.text, a.day, a.time, a.end, a.place, a.remind, a.repeat, a.until, a.skip], ['Dentiste, cabinet; 2e', '2026-10-20', '14:00', '14:30', 'Lyon', [15], 'weekly:1,3', '2026-12-31', ['2026-10-26']])
   const b = back.find(e => e.text === 'Vacances')
   assert.deepEqual([b.day, b.time, b.endDay, b.remind.sort((x, y) => x - y), b.repeat], ['2026-10-24', null, '2026-11-01', [0, 1440], 'yearly'])
-  assert.equal(back.length, 3)
-  assert.equal(S.fromIcs(ics, NOW)[0].id, back[0].id) // same file twice: same ids, no duplicates
+  assert.equal(back.length, 2) // our exported task stays in the task list
+  assert.deepEqual(back.map(e => e.id), ['a', 'b']) // our events come back with their ids: no duplicates
+  assert.equal(a.updatedAt, 1000) // from LAST-MODIFIED: a local edit or deletion made since then wins
+})
+
+test('calendar import: LAST-MODIFIED, cancelled and moved sessions', () => {
+  const ev = body => 'BEGIN:VEVENT\r\nUID:club\r\nSUMMARY:Entraînement\r\n' + body + 'END:VEVENT\r\n'
+  const ics = 'BEGIN:VCALENDAR\r\n' + ev('DTSTART:20261020T180000\r\nRRULE:FREQ=WEEKLY\r\nLAST-MODIFIED:20261001T120000Z\r\n') +
+    ev('RECURRENCE-ID:20261027T180000\r\nDTSTART:20261027T180000\r\nSTATUS:CANCELLED\r\n') +
+    ev('RECURRENCE-ID:20261103T180000\r\nDTSTART:20261104T190000\r\n') + 'END:VCALENDAR'
+  const out = S.fromIcs(ics, NOW)
+  assert.deepEqual(out.map(e => [e.day, e.time, e.repeat || null]), [['2026-10-20', '18:00', 'weekly'], ['2026-11-04', '19:00', null]])
+  assert.deepEqual(out[0].skip, ['2026-10-27', '2026-11-03'])
+  assert.equal(out[0].updatedAt, Date.UTC(2026, 9, 1, 12, 0, 0))
+  assert.equal(out[1].updatedAt, 1) // no date in the file: older than any local change
 })
 
 test('calendar import: UTC times, COUNT and Google-style files', () => {

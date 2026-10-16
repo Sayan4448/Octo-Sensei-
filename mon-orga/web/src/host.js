@@ -51,11 +51,13 @@
 
   function android(A) {
     const info = json(A.info(), {})
+    const has = name => typeof A[name] === 'function'
+    const value = v => (typeof v === 'string' ? json(v, null) : v) // async answers come as JSON text or as a value
     return {
       platform: 'android', version: info.version, info: info,
-      can: { voice: !!info.voice, share: true, files: true, photos: true, lock: true, diagnostics: true, sync: 'server', haptic: true, alarms: true },
+      can: { voice: !!info.voice, share: true, files: true, photos: true, camera: !!info.camera, lock: true, diagnostics: true, sync: 'server', haptic: true, alarms: true },
       load: () => Promise.resolve(json(A.load(), {})),
-      save: doc => Promise.resolve(json(A.save(JSON.stringify(doc)), null)),
+      save: doc => { const r = json(A.save(JSON.stringify(doc)), null); return r && r.error ? Promise.reject(new Error(r.error)) : Promise.resolve(r) }, // "storage": the phone is full
       loadSettings: () => Promise.resolve(json(A.settings(), {})),
       saveSettings: s => Promise.resolve(A.saveSettings(JSON.stringify(s))),
       onChange: f => listeners.push(f),
@@ -72,7 +74,15 @@
       haptic: () => A.haptic(),
       syncInfo: () => Promise.resolve(json(A.syncInfo(), {})),
       syncSet: on => Promise.resolve(json(A.syncSet(!!on), {})),
+      syncNewCode: has('syncNewCode') ? () => Promise.resolve(json(A.syncNewCode(), {})) : null,
       startAction: () => json(A.takeAction(), null),
+      theme: has('theme') ? dark => A.theme(!!dark) : null,
+      deviceEvents: has('deviceEvents') ? (from, to) => wait(id => A.deviceEvents(id, from, to)).then(value) : null,
+      addToCalendar: has('addToCalendar') ? e => A.addToCalendar(JSON.stringify(e)) : null,
+      chooseBackupFolder: has('chooseBackupFolder') ? () => wait(id => A.chooseBackupFolder(id)).then(value) : null,
+      clearBackupFolder: has('clearBackupFolder') ? () => Promise.resolve(A.clearBackupFolder()) : null,
+      backupInfo: has('backupInfo') ? () => Promise.resolve(json(A.backupInfo(), {})) : null,
+      testAlarmIn: has('testAlarmIn') ? (minutes, loud) => A.testAlarmIn(minutes, !!loud) : null,
     }
   }
 
@@ -90,6 +100,9 @@
       testAlarm: loud => D.testAlarm(!!loud),
       syncInfo: () => D.syncInfo(), syncConnect: (address, code) => D.syncConnect(address, code),
       syncScan: () => D.syncScan(), syncNow: () => D.syncNow(), syncForget: () => D.syncForget(),
+      chooseBackupFolder: D.chooseBackupFolder ? () => D.chooseBackupFolder() : null,
+      clearBackupFolder: D.clearBackupFolder ? () => D.clearBackupFolder() : null,
+      backupInfo: D.backupInfo ? () => D.backupInfo() : null,
       startAction: () => null,
     })
   }

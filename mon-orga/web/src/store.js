@@ -3,12 +3,14 @@
  * One JSON document, merged item by item (newest `updatedAt` wins), so the phone, the PC and a backup file
  * can each be edited offline and synced later. The Android side (Store.kt) reads the same format.
  *
- *  task  {id, createdAt, updatedAt, deleted, text, done, due, remind, repeat, until, important, list, steps, details, loud, doneAt}
+ *  task  {id, createdAt, updatedAt, deleted, text, done, due, remind, repeat, until, important, list, steps, details, loud, doneAt, place}
  *  note  {id, createdAt, updatedAt, deleted, text, pinned, list, images}
- *  event {id, createdAt, updatedAt, deleted, day, time, end, endDay, text, place, details, remind, repeat, until, skip, loud, list, noteId}
+ *  event {id, createdAt, updatedAt, deleted, day, time, end, endDay, text, place, details, remind, repeat, until, skip, loud, important, list, noteId}
+ *  history "ms:taskId" for each tick, "ms:taskId:x" when that tick was undone (the latest entry of the day wins)
  *  due   "2026-10-17T09:00" (with a time) or "2026-10-17" (a day only: reminders count from 09:00)
  *  remind  minutes before (0 = on time), several allowed: [1440, 60]
- *  repeat  daily | weekdays | weekly | weekly:1,3,5 (1 = Monday) | weeks:N | monthly | yearly | days:N | hours:N
+ *  repeat  daily | weekdays | weekly | weekly:1,3,5 (1 = Monday) | weeks:N | monthly | months:N | nth:K:D (K-th weekday D
+ *          of the month, K = -1 for the last) | yearly | days:N | hours:N
  */
 (function (root) {
   'use strict'
@@ -62,12 +64,22 @@
       else if (kind === 'weekly') {
         const days = repeatDays(repeat); if (!days.length) return null
         c = d; while (days.indexOf(weekday(c)) < 0) c = addDays(c, 1)
-      } else if (kind === 'monthly' || kind === 'yearly') {
-        const step = kind === 'monthly' ? 1 : 12
+      } else if (kind === 'monthly' || kind === 'yearly' || kind === 'months') {
+        const step = kind === 'monthly' ? 1 : kind === 'yearly' ? 12 : n
         const a = start.split('-').map(Number); const b = d.split('-').map(Number)
         let k = Math.max(0, Math.floor(((b[0] - a[0]) * 12 + b[1] - a[1]) / step))
         c = addMonths(start, k * step)
         while (c < d) { k++; c = addMonths(start, k * step) }
+      } else if (kind === 'nth') { // nth:2:4 = the 2nd Thursday of each month, nth:-1:5 = the last Friday
+        const k = +repeat.split(':')[1]; const wd = +repeat.split(':')[2]
+        if (!(wd >= 1 && wd <= 7) || !(k === -1 || (k >= 1 && k <= 5))) return null
+        const y = +d.slice(0, 4); const m0 = +d.slice(5, 7) - 1
+        c = null
+        for (let i = 0; i < 24 && !c; i++) {
+          const x = nthWeekday(y + Math.floor((m0 + i) / 12), (m0 + i) % 12, k, wd)
+          if (x && x >= d) c = x
+        }
+        if (!c) return null
       } else return null
       if (until && c > until) return null
       if (!skip || skip.indexOf(c) < 0) return c
@@ -76,6 +88,14 @@
     return null
   }
   const occursOn = (start, repeat, day, until, skip) => nextDay(start, repeat, day, until, skip) === day
+  // The k-th weekday wd (1 = Monday) of a month (m from 0), k = -1 for the last one; null when the month has none.
+  function nthWeekday(y, m, k, wd) {
+    const days = monthDays(y, m)
+    let day
+    if (k > 0) { const first = new Date(y, m, 1).getDay() || 7; day = 1 + ((wd - first + 7) % 7) + (k - 1) * 7 }
+    else { const last = new Date(y, m, days).getDay() || 7; day = days - ((last - wd + 7) % 7) }
+    return day <= days ? y + '-' + pad(m + 1) + '-' + pad(day) : null
+  }
 
   // First occurrence strictly after `after` (ms) of a series starting at `start` ("YYYY-MM-DD[THH:MM]").
   function nextOccurrence(start, repeat, until, skip, after) {
@@ -156,20 +176,22 @@
   }
 
   // ---------- tasks ----------
-  const SECTIONS = ['late', 'today', 'tomorrow', 'week', 'later', 'nodate', 'done']
-  function sectionOf(t, now) {
+  const SECTIONS = ['late', 'today', 'starred', 'tomorrow', 'week', 'later', 'nodate', 'done']
+  // dayStart: minutes after midnight when a day begins (360 = a night shift until 6 h stays in "today").
+  function sectionOf(t, now, dayStart) {
     if (t.done) return 'done'
-    if (!t.due) return 'nodate'
-    const d = dayOf(t.due); const td = today(now)
-    if (d < td || (t.due.length > 10 && ms(t.due) < now)) return 'late'
+    if (!t.due) return t.important ? 'starred' : 'nodate'
+    const off = (dayStart || 0) * 60000
+    const d = t.due.length > 10 ? today(ms(t.due) - off) : t.due; const td = today(now - off)
+    if (d < td) return 'late'
     if (d === td) return 'today'
     if (d === addDays(td, 1)) return 'tomorrow'
     if (d <= addDays(td, 7)) return 'week'
     return 'later'
   }
   const dueMs = t => ms(t.due.length > 10 ? t.due : t.due + 'T00:00')
-  function sortTasks(tasks, now) {
-    const rank = t => SECTIONS.indexOf(sectionOf(t, now))
+  function sortTasks(tasks, now, dayStart) {
+    const rank = t => SECTIONS.indexOf(sectionOf(t, now, dayStart))
     return tasks.filter(t => !t.deleted).slice().sort((a, b) =>
       rank(a) - rank(b) ||
       (a.done ? (b.doneAt || 0) - (a.doneAt || 0) : 0) ||
@@ -184,7 +206,8 @@
       let next
       if (t.due.length > 10) {
         const o = nextOccurrence(t.due, t.repeat, t.until, null, Math.max(ms(t.due), now))
-        next = o === null ? null : stamp(new Date(o))
+        // the planned time stays, even when a DST change skips it on the next day (02:30 would become 03:30 for good)
+        next = o === null ? null : t.repeat.indexOf('hours:') === 0 ? stamp(new Date(o)) : today(o) + 'T' + timeOf(t.due)
       } else {
         const from = addDays(t.due > today(now) ? t.due : today(now), 1)
         next = nextDay(t.due, t.repeat, from, t.until, null)
@@ -197,17 +220,20 @@
   function postpone(t, now, days) {
     const base = t.due && dayOf(t.due) > today(now) ? dayOf(t.due) : today(now)
     const day = addDays(base, days || 1)
-    return Object.assign({}, t, { due: day + (timeOf(t.due) ? 'T' + timeOf(t.due) : ''), updatedAt: now })
+    const out = Object.assign({}, t, { due: day + (timeOf(t.due) ? 'T' + timeOf(t.due) : ''), updatedAt: now })
+    if (t.repeat === 'weekly' && t.due) out.repeat = 'weekly:' + weekday(dayOf(t.due)) // the series keeps its weekday
+    return out
   }
 
   // ---------- progress ----------
+  const histTime = h => parseInt(String(h), 10) // entries are numbers (old) or "ms:taskId[:x]"
   function streak(history, now) {
-    const days = {}; history.forEach(h => { days[today(h)] = true })
+    const days = {}; history.forEach(h => { if (!/:x$/.test(h)) days[today(histTime(h))] = true })
     let d = today(now); if (!days[d]) d = addDays(d, -1)
     let n = 0; while (days[d]) { n++; d = addDays(d, -1) }
     return n
   }
-  function doneSince(history, fromDay) { const from = ms(fromDay); return history.filter(h => h >= from).length }
+  function doneSince(history, fromDay) { const from = ms(fromDay); return history.filter(h => histTime(h) >= from && !/:x$/.test(h)).length }
   function level(count) { // 3 to reach level 2, 12 for 3, 27 for 4…
     const lv = 1 + Math.floor(Math.sqrt(count / 3))
     const lo = 3 * (lv - 1) * (lv - 1); const hi = 3 * lv * lv
@@ -232,7 +258,7 @@
     const d = doc && typeof doc === 'object' ? doc : {}
     const out = Object.assign({}, d, { app: 'mon-orga', version: 2 })
     out.tasks = (Array.isArray(d.tasks) ? d.tasks : []).map(t => Object.assign({}, t, base(t, now), {
-      text: str(t.text), done: !!t.done, due: opt(t.due), remind: mins(t.remind), repeat: opt(t.repeat), until: opt(t.until),
+      text: str(t.text), done: !!t.done, due: opt(t.due), remind: mins(t.remind), repeat: opt(t.repeat), until: opt(t.until), place: str(t.place),
       important: !!t.important, list: str(t.list), details: str(t.details), loud: !!t.loud, doneAt: +t.doneAt || null,
       steps: (Array.isArray(t.steps) ? t.steps : []).map(s => ({ text: str(s.text), done: !!s.done })),
     }))
@@ -242,9 +268,9 @@
     out.events = (Array.isArray(d.events) ? d.events : []).filter(e => typeof e.day === 'string' && e.day.length === 10).map(e => Object.assign({}, e, base(e, now), {
       text: str(e.text), time: opt(e.time), end: opt(e.end), endDay: opt(e.endDay), place: str(e.place), details: str(e.details),
       remind: mins(e.remind), repeat: opt(e.repeat), until: opt(e.until), skip: Array.isArray(e.skip) ? e.skip.filter(s => typeof s === 'string') : [],
-      loud: !!e.loud, list: str(e.list), noteId: opt(e.noteId),
+      loud: !!e.loud, important: !!e.important, list: str(e.list), noteId: opt(e.noteId),
     }))
-    out.history = (Array.isArray(d.history) ? d.history : []).map(Number).filter(isFinite)
+    out.history = (Array.isArray(d.history) ? d.history : []).filter(h => (typeof h === 'number' || typeof h === 'string') && isFinite(histTime(h)))
     return out
   }
   const empty = () => normalize({})
@@ -266,7 +292,7 @@
       out[k] = order.map(id => byId[id])
     })
     const seen = {}
-    out.history = a.history.concat(b.history).filter(h => (seen[h] ? false : (seen[h] = true))).sort((x, y) => x - y).slice(-HISTORY_MAX)
+    out.history = a.history.concat(b.history).filter(h => (seen[h] ? false : (seen[h] = true))).sort((x, y) => histTime(x) - histTime(y)).slice(-HISTORY_MAX)
     return out
   }
   // Drops tombstones older than 30 days (every device has had the time to sync them).
@@ -285,7 +311,7 @@
     const hay = fold(texts.join(' '))
     return words.every(w => hay.indexOf(w) >= 0)
   }
-  const TAG = /(^|\s)#([A-Za-zÀ-ÖØ-öø-ÿ0-9_-]{2,})/g
+  const TAG = /(^|\s)([#@][A-Za-zÀ-ÖØ-öø-ÿ0-9_-]{2,})/g // #mot-clé, @personne
   function tags(text) { const out = []; let m; TAG.lastIndex = 0; while ((m = TAG.exec(text))) out.push(m[2].toLowerCase()); return out }
 
   // ---------- natural language: "Sortir les poubelles chaque mardi 19h" ----------
@@ -293,8 +319,14 @@
   const word = src => new RegExp('(^|[^' + L + '])(' + src + ')(?![' + L + '])', 'i')
   const FR_DAYS = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche']
   const EN_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+  const EN_SHORT = { mon: 1, tue: 2, tues: 2, wed: 3, thu: 4, thur: 4, thurs: 4, fri: 5, sat: 6, sun: 7 }
+  const SHORT = 'tues?|wed|thu(?:rs?)?|fri|sat|sun|mon'
   const DAYS = FR_DAYS.concat(EN_DAYS).join('|')
-  const dayIndex = name => { const n = name.toLowerCase().replace(/s$/, ''); const i = FR_DAYS.indexOf(n); return (i >= 0 ? i : EN_DAYS.indexOf(n)) + 1 }
+  const DAYS_X = DAYS + '|' + SHORT // short English names, only where a word like "every" or "on" says it is a day ("mon" is French too)
+  const dayIndex = name => {
+    const n = name.toLowerCase().replace(/\.$/, ''); if (EN_SHORT[n]) return EN_SHORT[n]
+    const m = n.replace(/s$/, ''); const i = FR_DAYS.indexOf(m); return (i >= 0 ? i : EN_DAYS.indexOf(m)) + 1
+  }
   const MONTHS = [
     ['janvier', 'janv', 'january', 'jan'], ['février', 'fevrier', 'févr', 'fevr', 'fév', 'fev', 'february', 'feb'], ['mars', 'march', 'mar'],
     ['avril', 'avr', 'april', 'apr'], ['mai', 'may'], ['juin', 'june', 'jun'], ['juillet', 'juil', 'july', 'jul'], ['août', 'aout', 'august', 'aug'],
@@ -304,26 +336,40 @@
   const NUM_WORDS = { un: 1, une: 1, a: 1, an: 1, one: 1, deux: 2, two: 2, trois: 3, three: 3 }
   const num = s => NUM_WORDS[s.toLowerCase()] || parseInt(s, 10)
 
+  const ORDINALS = { premier: 1, '1er': 1, first: 1, deuxieme: 2, '2e': 2, second: 2, troisieme: 3, '3e': 3, third: 3, quatrieme: 4, '4e': 4, fourth: 4, cinquieme: 5, '5e': 5, fifth: 5, dernier: -1, last: -1 }
+  const SEP = '\\s*(?:,|et|and|&)\\s*(?:le\\s+|les\\s+)?'
+  const daysOf = s => 'weekly:' + s.split(/\s*(?:,|et|and|&)\s*/i).map(x => dayIndex(x.replace(/^(le|les)\s+/i, '')))
+    .filter((n, i, a) => n > 0 && a.indexOf(n) === i).sort().join(',')
   const REPEATS = [
+    [word('(?:le\\s+|chaque\\s+|tous les\\s+|every\\s+|the\\s+|on the\\s+)?(premier|1er|deuxi[eè]me|2e|second|troisi[eè]me|3e|quatri[eè]me|4e|cinqui[eè]me|5e|dernier|first|third|fourth|fifth|last)\\s+(' + DAYS + ')s?\\s+(?:du mois|de chaque mois|de tous les mois|of the month|of every month|of each month)'),
+      g => 'nth:' + ORDINALS[fold(g[1])] + ':' + dayIndex(g[2])],
     [word('(?:toutes les|every)\\s+(\\d{1,2})\\s*(?:h|heures?|hours?|hrs?)'), g => 'hours:' + g[1]],
     [word('(?:tous les|every)\\s+(\\d{1,3})\\s*(?:jours|days)'), g => 'days:' + g[1]],
     [word('(?:toutes les|every)\\s+(\\d{1,2})\\s*(?:semaines|weeks)'), g => 'weeks:' + g[1]],
+    [word('(?:tous les|every)\\s+(\\d{1,2})\\s*(?:mois|months)'), g => 'months:' + g[1]],
     [word('une semaine sur deux|toutes les deux semaines|every other week'), () => 'weeks:2'],
-    [word('(?:chaque|tous les|toutes les|every)\\s+((?:' + DAYS + ')s?(?:\\s*(?:,|et|and|&)\\s*(?:' + DAYS + ')s?)*)'),
-      g => 'weekly:' + g[1].split(/\s*(?:,|et|and|&)\s*/i).map(dayIndex).filter((n, i, a) => n > 0 && a.indexOf(n) === i).sort().join(',')],
-    [word('tous les (?:matins|soirs)|every (?:morning|evening|night)'), g => 'daily'],
+    [word('(?:chaque|tous les)\\s+trimestres?|tous les trois mois|every quarter|quarterly'), () => 'months:3'],
+    [word('(?:chaque|tous les)\\s+semestres?|tous les six mois|twice a year'), () => 'months:6'],
+    [word('(?:le\\s+|les\\s+|on\\s+)?((?:' + DAYS_X + ')s?(?:' + SEP + '(?:' + DAYS_X + ')s?)+)\\s+(?:chaque semaine|toutes les semaines|every week)'), g => daysOf(g[1])],
+    [word('(?:chaque|tous les|toutes les|every)\\s+((?:' + DAYS_X + ')s?(?:' + SEP + '(?:' + DAYS_X + ')s?)*)'), g => daysOf(g[1])],
+    [word('on\\s+((?:' + EN_DAYS.join('|') + ')s(?:\\s*(?:,|and|&)\\s*(?:' + EN_DAYS.join('|') + ')s)*)'), g => daysOf(g[1])],
+    [word('(?:tous les\\s+)?jours ouvr[ée]s|en semaine|du lundi au vendredi|on weekdays|every weekday|weekdays'), () => 'weekdays'],
+    [word('tous les (?:matins|soirs)|every (?:morning|evening|night)'), () => 'daily'],
     [word('tous les jours|chaque jour|quotidiennement|every ?day|daily'), () => 'daily'],
-    [word('en semaine|du lundi au vendredi|les jours ouvr[ée]s|on weekdays|every weekday|weekdays'), () => 'weekdays'],
     [word('toutes les semaines|chaque semaine|every week|weekly'), () => 'weekly'],
     [word('tous les mois|chaque mois|every month|monthly'), () => 'monthly'],
     [word('tous les ans|chaque ann[ée]e|every year|yearly|annually'), () => 'yearly'],
   ]
+  const STREET = 'rue|avenue|av\\.|bd|boulevard|chemin|place|all[ée]e|impasse|route|quai|cours|street|st\\.|road|rd\\.|ave\\.?|lane|drive'
+  const ADDRESS = new RegExp('\\s\\d{1,4}(?:\\s?(?:bis|ter))?,?\\s+(?:' + STREET + ')(?![' + L + '])', 'i')
   const PART_OF_DAY = { matin: '09:00', morning: '09:00', midi: '12:00', 'apres-midi': '14:00', 'apres midi': '14:00', afternoon: '14:00', soir: '19:00', evening: '19:00', night: '21:00' }
   const FILLER = /^\s*(?:rappelle[- ]moi\s+(?:de\s+|d['’])?|remind me to\s+|n['’]oublie pas\s+(?:de\s+|d['’])?|penser [àa]\s+|don['’]t forget to\s+)/i
 
-  function parse(input, nowMs) {
+  // opts.mdy: dates typed month first (10/22), as in the United States.
+  function parse(input, nowMs, opts) {
     const now = new Date(nowMs)
     const td = ymd(now)
+    const mdy = !!(opts && opts.mdy)
     let text = input
     const cuts = [] // where date/repeat words were, to accept a bare "18h" right next to them
     // Removes the first match (when `ok` accepts its groups) and returns [phrase, group1, …].
@@ -336,7 +382,16 @@
       return g
     }
     const validDay = (d, mo) => d >= 1 && d <= 31 && mo >= 0 && mo <= 11
-    let repeat = null; let date = null; let time = null; let exact = null; let weekly = null; let single = false; let g
+    const hhmm = (h, m) => pad(+h) + ':' + pad(+(m || 0))
+    let repeat = null; let date = null; let time = null; let times = null; let exact = null; let weekly = null; let single = false; let g
+    let remind = null; let loud = false; let important = false; let end = null; let evening = false; let night = false
+    if ((g = take(word("(?:rappel(?:le[- ]moi|er)?|pr[ée]viens[- ]moi|remind(?:er|\\s+me)?)\\s+(\\d{1,3}|une?|an?|one|deux|two|trois|three)\\s*(minutes?|mins?|mn|h|heures?|hours?|jours?|days?|semaines?|weeks?|mois|months?)\\s+(?:avant|before)")))) {
+      const n = num(g[1]); const u = g[2].toLowerCase()
+      remind = [n * (/^mois|^month/.test(u) ? 43200 : /^m/.test(u) ? 1 : /^h/.test(u) ? 60 : /^(j|d)/.test(u) ? 1440 : 10080)]
+    } else if (take(word("(?:rappel(?:le[- ]moi|er)?|pr[ée]viens[- ]moi|remind(?:er|\\s+me)?)\\s+(?:la veille|the day before)"))) remind = [1440]
+    const LOUD = word('(?:en\\s+)?(?:mode\\s+)?(?:alarme|r[ée]veil|alarm)')
+    if (LOUD.test(text)) { loud = true; if (text.replace(LOUD, ' ').replace(/[\s\d:h!]+/gi, '').length > 1) take(LOUD) } // "Réveil 7h" keeps its name
+    if ((g = /(^|\s)(!{1,3})(?=\s|$)/.exec(text))) { important = true; text = text.slice(0, g.index) + g[1] + text.slice(g.index + g[0].length) }
     for (let i = 0; i < REPEATS.length && !repeat; i++) {
       if ((g = take(REPEATS[i][0]))) {
         repeat = REPEATS[i][1](g)
@@ -347,7 +402,9 @@
     }
     if (repeat && repeat.indexOf('weekly:') === 0) weekly = repeatDays(repeat)
     if (take(word('(?:dans|in)\\s+(?:une\\s+)?(?:demi[- ]heure|half an hour)'))) exact = nowMs + 30 * 60000
-    else if ((g = take(word('(?:dans|in)\\s+(\\d{1,3}|une?|an?|one|deux|two|trois|three)\\s*(minutes?|mins?|mn|heures?|hours?|hrs?|h|jours?|days?|semaines?|weeks?|mois|months?)')))) {
+    else if ((g = take(word('(?:dans|in)\\s+(\\d{1,2}|une?|an?|one|deux|two|trois|three)\\s*(?:h|heures?|hours?)\\s*(?:et\\s+|and\\s+(?:a\\s+)?)?(\\d{1,2}|demie?|quart|half)(?:\\s*(?:min|mn|minutes?))?'), x => !/^\d/.test(x[2]) || +x[2] < 60))) {
+      exact = nowMs + (num(g[1]) * 60 + (/demi|half/i.test(g[2]) ? 30 : /quart/i.test(g[2]) ? 15 : +g[2])) * 60000
+    } else if ((g = take(word('(?:dans|in)\\s+(\\d{1,3}|une?|an?|one|deux|two|trois|three)\\s*(minutes?|mins?|mn|heures?|hours?|hrs?|h|jours?|days?|semaines?|weeks?|mois|months?)')))) {
       const n = num(g[1]); const u = g[2].toLowerCase()
       if (/^mois|^month/.test(u)) date = addMonths(td, n)
       else if (/^m/.test(u)) exact = nowMs + n * 60000
@@ -359,7 +416,8 @@
       if (take(word('apr[eè]s[- ]demain|the day after tomorrow'))) date = addDays(td, 2)
       else if ((g = take(word('(?:demain|tomorrow)(?:\\s+(matin|midi|soir|apr[eè]s[- ]midi|morning|afternoon|evening|night))?')))) {
         date = addDays(td, 1); if (g[1]) time = PART_OF_DAY[fold(g[1])] || null
-      } else if (take(word('ce soir|tonight|this evening'))) { date = td; time = '19:00' }
+      } else if (take(word('cette nuit|late tonight'))) { date = td; time = '22:00'; night = true }
+      else if (take(word('ce soir|tonight|this evening'))) { date = td; time = '19:00'; evening = true }
       else if (take(word('cet apr[eè]s[- ]midi|this afternoon'))) { date = td; time = '14:00' }
       else if (take(word('ce matin|this morning'))) { date = td; time = '09:00' }
       else if (take(word("aujourd['’]hui|today"))) date = td
@@ -368,24 +426,47 @@
       else if (take(word('le mois prochain|next month'))) date = addMonths(td, 1).slice(0, 8) + '01'
       else if ((g = take(word('(?:le\\s+)?(\\d{1,2})(?:er|st|nd|rd|th)?\\s+(?:of\\s+)?(' + MONTH_RE + ')\\.?(?:\\s+(\\d{4}))?'), x => validDay(+x[1], monthIndex(x[2]))))) date = pickDate(g[3] ? +g[3] : null, monthIndex(g[2]), +g[1], td)
       else if ((g = take(word('(' + MONTH_RE + ')\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s+(\\d{4}))?'), x => validDay(+x[2], monthIndex(x[1]))))) date = pickDate(g[3] ? +g[3] : null, monthIndex(g[1]), +g[2], td)
-      else if ((g = take(word('(?:le\\s+)?(\\d{1,2})[/.](\\d{1,2})(?:[/.](\\d{2,4}))?'), x => validDay(+x[1], +x[2] - 1)))) {
+      else if ((g = take(word("(?:exp\\.?|dlc|ddm|best before|use by|p[ée]rim[ée]?(?:\\s+(?:le|en|fin))?|[àa] consommer avant)\\s*:?\\s*(\\d{1,2})[/.](\\d{4}|\\d{2})"), x => +x[1] >= 1 && +x[1] <= 12))) date = endOfMonth(g[2], +g[1])
+      else if ((g = take(word('(?:le\\s+)?(\\d{1,2})[/.](\\d{1,2})(?:[/.](\\d{2,4}))?'), x => validDay(mdy ? +x[2] : +x[1], (mdy ? +x[1] : +x[2]) - 1)))) {
         const y = g[3] ? (+g[3] < 100 ? 2000 + +g[3] : +g[3]) : null
-        date = pickDate(y, +g[2] - 1, +g[1], td)
-      } else if ((g = take(word('le\\s+(\\d{1,2})(?:er)?'), x => +x[1] >= 1 && +x[1] <= 31))) {
-        const d = +g[1]; const first = td.slice(0, 8) + '01'
+        date = mdy ? pickDate(y, +g[1] - 1, +g[2], td) : pickDate(y, +g[2] - 1, +g[1], td)
+      } else if ((g = take(word('(\\d{1,2})[/.](\\d{4}|\\d{2})(?![/.\\d])'), x => +x[1] >= 1 && +x[1] <= 12 && endOfMonth(x[2], +x[1]) >= td))) date = endOfMonth(g[2], +g[1]) // 03/2027 on a box
+      else if ((g = take(word('(\\d{1,2})[/.](\\d{1,2})'), x => validDay(+x[2], +x[1] - 1)))) date = pickDate(null, +g[1] - 1, +g[2], td) // 10/22, month first
+      else if ((g = take(word('(?:le\\s+(\\d{1,2})(?:er)?|(?:on\\s+)?the\\s+(\\d{1,2})(?:st|nd|rd|th))'), x => +(x[1] || x[2]) >= 1 && +(x[1] || x[2]) <= 31))) {
+        const d = +(g[1] || g[2]); const first = td.slice(0, 8) + '01'
         const inMonth = m1 => m1.slice(0, 8) + pad(Math.min(d, monthDays(+m1.slice(0, 4), +m1.slice(5, 7) - 1)))
         date = inMonth(first) >= td ? inMonth(first) : inMonth(addMonths(first, 1))
-      } else if ((g = take(word('(?:ce\\s+|next\\s+|this\\s+|on\\s+)?(' + DAYS + ')(?:\\s+prochain)?')))) {
+      } else if ((g = take(word('(?:ce\\s+|next\\s+|this\\s+|on\\s+)?(' + DAYS + ')(?:\\s+prochain)?'))) ||
+        (g = take(word('(?:next|this|on)\\s+(' + SHORT + ')\\.?'))) || (g = take(word('(' + SHORT + ')\\.?(?=\\s+(?:\\d|at\\s|@))'), x => !/^mon/i.test(x[0]) || /^Mon/.test(x[0])))) {
         if (!weekly) { weekly = [dayIndex(g[1])]; single = true }
       }
     }
     if (exact === null) {
       const hourOk = x => +x[1] < 24 && +(x[2] || 0) < 60
-      if ((g = take(word('(?:[àa]\\s+)?(midi|minuit|noon|midnight)')))) time = /midi|noon/i.test(g[1]) ? '12:00' : '00:00'
-      else if ((g = take(word('(?:at\\s+)?(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)'), x => +x[1] >= 1 && +x[1] <= 12 && +(x[2] || 0) < 60))) {
+      const ampm = (h, m, ap) => pad((+h % 12) + (/p/i.test(ap) ? 12 : 0)) + ':' + pad(+(m || 0))
+      // A time range: "18h-1h", "de 9h à 12h30", "6pm-1am" (the end is used by events)
+      if ((g = take(word('(?:de\\s+|from\\s+)?(\\d{1,2})\\s*(?:h|:)\\s*(\\d{2})?\\s*(?:-|–|à|a|to|until|jusqu[\'’]à)\\s*(\\d{1,2})\\s*(?:h|:)\\s*(\\d{2})?'), x => hourOk(x) && +x[3] < 24 && +(x[4] || 0) < 60))) {
+        time = hhmm(g[1], g[2]); end = hhmm(g[3], g[4])
+      } else if ((g = take(word('(?:from\\s+)?(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?\\s*(?:-|–|to|until)\\s*(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)'), x => +x[1] >= 1 && +x[1] <= 12 && +x[4] >= 1 && +x[4] <= 12))) {
+        time = ampm(g[1], g[2], g[3] || g[6]); end = ampm(g[4], g[5], g[6])
+      }
+      // Several times at once: "à 8h, 12h et 19h", "matin, midi et soir" (one task each).
+      if (time) { /* range found */ } else if ((g = take(word('(?:[àa]\\s+|at\\s+)?(\\d{1,2})\\s*(?:h|:)\\s*(\\d{2})?((?:\\s*(?:,|et|and|&)\\s*\\d{1,2}\\s*(?:h|:)\\s*(?:\\d{2})?)+)'), hourOk))) {
+        times = [hhmm(g[1], g[2])]
+        ;(g[3].match(/\d{1,2}\s*(?:h|:)\s*(?:\d{2})?/g) || []).forEach(t => { const m = /(\d{1,2})\s*(?:h|:)\s*(\d{2})?/.exec(t); if (+m[1] < 24 && +(m[2] || 0) < 60) times.push(hhmm(m[1], m[2])) })
+      } else if (take(word('(?:le\\s+)?matin,?\\s+(?:le\\s+)?midi,?\\s+et\\s+(?:le\\s+)?soir|morning,?\\s+noon,?\\s+and\\s+(?:evening|night)'))) times = ['08:00', '12:00', '19:00']
+      else if (take(word('(?:le\\s+)?matin et (?:le\\s+)?soir|morning and (?:evening|night)'))) times = ['08:00', '19:00']
+      else if (take(word('(?:le\\s+)?midi et (?:le\\s+)?soir|noon and (?:evening|night)'))) times = ['12:00', '19:00']
+      if (times) time = times[0]
+      else if ((g = take(word('(?:[àa]\\s+)?(midi|minuit|noon|midnight)')))) time = /midi|noon/i.test(g[1]) ? '12:00' : '00:00'
+      else if ((g = take(word('(?:at\\s+|by\\s+|before\\s+)?(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)'), x => +x[1] >= 1 && +x[1] <= 12 && +(x[2] || 0) < 60))) {
         time = pad((+g[1] % 12) + (g[3].toLowerCase() === 'pm' ? 12 : 0)) + ':' + pad(+(g[2] || 0))
-      } else if ((g = take(word('(?:[àa]|at|vers|pour|@)\\s*(\\d{1,2})(?:\\s*(?:h|:)\\s*(\\d{2})?|\\s+heures?)'), hourOk))) {
-        time = pad(+g[1]) + ':' + pad(+(g[2] || 0))
+      } else if ((g = take(word("(?:[àa]|at|vers|pour|@|avant|d['’]ici|before|by)\\s*(\\d{1,2})(?:\\s*(?:h|:)\\s*(\\d{2})?|\\s+heures?)"), hourOk))) {
+        time = hhmm(g[1], g[2])
+      } else if ((g = take(word('(?:at|by)\\s+(\\d{1,2})(?![\\d:hH])(?!\\s+(?:' + STREET + ')(?![' + L + ']))'), x => +x[1] >= 1 && +x[1] <= 12))) {
+        // "at 7": 1 to 6 o'clock is the afternoon; without a date, the next 7 o'clock (7 PM once 7 AM is past)
+        const h = +g[1]; const pm = h < 12 && (h <= 6 || evening || (!date && !weekly && ms(td + 'T' + pad(h) + ':00') <= nowMs))
+        time = pad(pm ? h + 12 : h) + ':00'
       } else {
         // A bare "18h" counts next to a date or a repetition, or at the very end: "faire 2h de sport" stays a text.
         const bare = word('(\\d{1,2})\\s*(?:h|:)\\s*(\\d{2})?')
@@ -393,31 +474,45 @@
           const m = bare.exec(text); const s = m.index + m[1].length; const e = s + m[2].length
           return hourOk(x) && (!text.slice(e).trim() || cuts.some(c => Math.abs(c - e) <= 3 || Math.abs(c - s) <= 3))
         })
-        if (g) time = pad(+g[1]) + ':' + pad(+(g[2] || 0))
+        if (g) time = hhmm(g[1], g[2])
       }
     }
-    let due = null
-    if (exact !== null) due = stamp(new Date(Math.ceil(exact / 60000) * 60000))
-    else {
-      if (!date && weekly) {
+    if (night && time && time < '12:00') date = addDays(td, 1) // "cette nuit 3h": the coming night
+    if (!date && !weekly && exact === null) { // "Shift 6pm-1am fri": a short day name right after a time
+      const short = word('(tues?|wed|thu(?:rs?)?|fri|sat|sun)\\.?')
+      if ((g = take(short, () => { const m = short.exec(text); const s = m.index + m[1].length; return !text.slice(s + m[2].length).trim() || cuts.some(c => Math.abs(c - s) <= 3) }))) { weekly = [dayIndex(g[0])]; single = true }
+    }
+    function dueAt(tm) {
+      if (exact !== null) return stamp(new Date(Math.ceil(exact / 60000) * 60000))
+      let d = date
+      if (!d && weekly) {
         // "lundi" means the next Monday, today only with a later time ("lundi 18h" on a Monday morning); "chaque lundi" may start today.
-        const fromToday = time ? ms(td + 'T' + time) > nowMs : !single
-        let d = fromToday ? td : addDays(td, 1)
+        const fromToday = tm ? ms(td + 'T' + tm) > nowMs : !single
+        d = fromToday ? td : addDays(td, 1)
         while (weekly.indexOf(weekday(d)) < 0) d = addDays(d, 1)
-        date = d
       }
-      if (date) due = date + (time ? 'T' + time : '')
-      else if (time) due = (ms(td + 'T' + time) > nowMs ? td : addDays(td, 1)) + 'T' + time
-      else if (repeat && repeat.indexOf('hours:') === 0) due = stamp(new Date(Math.ceil((nowMs + parseInt(repeat.slice(6), 10) * 3600000) / 60000) * 60000))
-      else if (repeat) due = td
+      if (!d && !tm && repeat && repeat.indexOf('hours:') === 0) return stamp(new Date(Math.ceil((nowMs + parseInt(repeat.slice(6), 10) * 3600000) / 60000) * 60000))
+      if (!d && (tm || repeat)) d = tm && ms(td + 'T' + tm) <= nowMs ? addDays(td, 1) : td
+      if (!d) return null
+      if (repeat && !date) d = nextDay(d, repeat, d, null, null) || d // the first day the repetition really happens (a weekday, the 1st Monday…)
+      return d + (tm ? 'T' + tm : '')
     }
-    if (!due && !repeat) return { text: input.trim(), due: null, repeat: null }
+    const due = dueAt(time)
+    const extra = o => { if (remind) o.remind = remind; if (loud) o.loud = true; if (important) o.important = true; if (end && due && due.length > 10) o.end = end; return o }
+    if (!due && !repeat) return extra({ text: (loud || important || remind ? text.replace(/\s+/g, ' ').trim() : '') || input.trim(), due: null, repeat: null })
     let rest = text.replace(FILLER, '').replace(/\s+/g, ' ').trim()
     for (let i = 0; i < 3; i++) rest = rest.replace(/[\s,;:.-]+$/, '').replace(/\s+(?:[àa]|at|le|on|pour|vers|de|du|for|by|et|and|à partir de)$/i, '').trim()
     rest = rest.replace(/^[\s,;:.-]+/, '')
     rest = rest.charAt(0).toUpperCase() + rest.slice(1)
-    return { text: rest || input.trim(), due: due, repeat: repeat }
+    const addr = ADDRESS.exec(rest) // "Chantier 12 rue des Lilas": the address becomes the place
+    let place = ''
+    if (addr && addr.index > 0) { place = rest.slice(addr.index).trim(); rest = rest.slice(0, addr.index).replace(/[\s,;:-]+$/, '').replace(/\s+(?:au|à|a|at|chez)$/i, '').trim() }
+    const out = extra({ text: rest || input.trim(), due: due, repeat: repeat })
+    if (place) out.place = place
+    if (times && times.length > 1 && exact === null) out.dues = times.map(dueAt)
+    return out
   }
+  function endOfMonth(year, month) { const y = +year < 100 ? 2000 + +year : +year; return y + '-' + pad(month) + '-' + pad(monthDays(y, month - 1)) }
   function pickDate(y, mo, d, td) { // without a year: the next such date
     const year = y || +td.slice(0, 4)
     let c = year + '-' + pad(mo + 1) + '-' + pad(Math.min(d, monthDays(year, mo)))
@@ -432,7 +527,8 @@
     const k = repeat.split(':')[0]; const n = repeat.split(':')[1]
     let r = k === 'daily' ? 'FREQ=DAILY' : k === 'days' ? 'FREQ=DAILY;INTERVAL=' + n : k === 'weekdays' ? 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR'
       : repeat === 'weekly' ? 'FREQ=WEEKLY' : k === 'weekly' ? 'FREQ=WEEKLY;BYDAY=' + repeatDays(repeat).map(d => ICS_DAYS[d - 1]).join(',')
-      : k === 'weeks' ? 'FREQ=WEEKLY;INTERVAL=' + n : k === 'monthly' ? 'FREQ=MONTHLY' : k === 'yearly' ? 'FREQ=YEARLY' : null
+      : k === 'weeks' ? 'FREQ=WEEKLY;INTERVAL=' + n : k === 'monthly' ? 'FREQ=MONTHLY' : k === 'months' ? 'FREQ=MONTHLY;INTERVAL=' + n
+      : k === 'nth' ? 'FREQ=MONTHLY;BYDAY=' + repeat.split(':')[1] + ICS_DAYS[+repeat.split(':')[2] - 1] : k === 'yearly' ? 'FREQ=YEARLY' : null
     if (r && until) r += ';UNTIL=' + until.replace(/-/g, '') + 'T235959'
     return r
   }
@@ -441,13 +537,13 @@
   function fold75(line) { const out = []; while (line.length > 74) { out.push(line.slice(0, 74)); line = ' ' + line.slice(74) } out.push(line); return out.join('\r\n') }
   function toIcs(doc, now) {
     const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Mon Orga//FR', 'CALSCALE:GREGORIAN']
-    const dtstamp = new Date(now).toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z'
-    function add(id, day, time, end, endDay, title, place, details, remind, repeat, until, skip) {
-      lines.push('BEGIN:VEVENT', 'UID:' + id + '@mon-orga', 'DTSTAMP:' + dtstamp, 'SUMMARY:' + icsText(title))
+    const utc = t => new Date(t).toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z'
+    function add(id, day, time, end, endDay, title, place, details, remind, repeat, until, skip, updatedAt) {
+      lines.push('BEGIN:VEVENT', 'UID:' + id + '@mon-orga', 'DTSTAMP:' + utc(now), 'LAST-MODIFIED:' + utc(updatedAt || now), 'SUMMARY:' + icsText(title))
       if (time) {
         lines.push('DTSTART:' + icsDate(day, time))
-        const e = end && end > time ? end : null
-        lines.push('DTEND:' + (e ? icsDate(endDay || day, e) : icsDate(day, hm(new Date(ms(day + 'T' + time) + 3600000)))))
+        const e = end && (end > time || (endDay && endDay > day)) ? end : null
+        lines.push('DTEND:' + (e ? icsDate(endDay || day, e) : icsDate(endDay || day, hm(new Date(ms(day + 'T' + time) + 3600000)))))
       } else {
         lines.push('DTSTART;VALUE=DATE:' + icsDate(day), 'DTEND;VALUE=DATE:' + icsDate(addDays(endDay || day, 1)))
       }
@@ -461,12 +557,15 @@
       })
       lines.push('END:VEVENT')
     }
-    live(doc.events).forEach(e => add(e.id, e.day, e.time, e.end, e.endDay, e.text, e.place, e.details, e.remind, e.repeat, e.until, e.skip))
-    live(doc.tasks).filter(t => t.due && !t.done).forEach(t => add(t.id, dayOf(t.due), timeOf(t.due), null, null, '☐ ' + t.text, '', t.details, t.remind, t.repeat, t.until, null))
+    live(doc.events).forEach(e => add(e.id, e.day, e.time, e.end, e.endDay, e.text, e.place, e.details, e.remind, e.repeat, e.until, e.skip, e.updatedAt))
+    live(doc.tasks).filter(t => t.due && !t.done).forEach(t => add(t.id, dayOf(t.due), timeOf(t.due), null, null, TASK_MARK + t.text, t.place, t.details, t.remind, t.repeat, t.until, null, t.updatedAt))
     lines.push('END:VCALENDAR')
     return lines.map(fold75).join('\r\n') + '\r\n'
   }
-  // Reads the events of a .ics file. Ids come from the UID, so importing the same file twice updates instead of duplicating.
+  const TASK_MARK = '☐ '
+  // Reads the events of a .ics file. Ids come from the UID (ours come back as they left), so importing the same file
+  // twice updates instead of duplicating. updatedAt is the file's LAST-MODIFIED (else very old): a local edit or
+  // deletion made after that wins over a re-import. Our own exported tasks are skipped (they live in the task list).
   function fromIcs(text, now) {
     const lines = text.replace(/\r\n[ \t]/g, '').replace(/\n[ \t]/g, '').split(/\r?\n/)
     const unesc = s => s.replace(/\\n/gi, '\n').replace(/\\([,;\\])/g, '$1')
@@ -499,9 +598,16 @@
       else if (name === 'DTEND') ev.end = dt(value, params)
       else if (name === 'EXDATE') value.split(',').forEach(v => { const d = dt(v, params); if (d) ev.skip.push(d.day) })
       else if (name === 'RRULE') ev.rrule = value
+      else if (name === 'RECURRENCE-ID') ev.recurrence = dt(value, params)
+      else if (name === 'LAST-MODIFIED' || (name === 'CREATED' && !ev.modified)) {
+        const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/.exec(value)
+        if (m) ev.modified = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6])
+      } else if (name === 'STATUS') ev.cancelled = /CANCELLED/i.test(value)
     })
-    return events.map(ev => {
-      const e = { id: 'ics-' + hash(ev.uid || ev.text + ev.start.day), createdAt: now, updatedAt: now, text: ev.text || '?', day: ev.start.day, time: ev.start.time,
+    const ours = ev => /@mon-orga$/.test(ev.uid || '') && !ev.recurrence
+    const out = events.filter(ev => !(ours(ev) && (ev.text || '').indexOf(TASK_MARK) === 0) && !(ev.cancelled && !ev.recurrence)).map(ev => {
+      const id = ours(ev) ? ev.uid.slice(0, -9) : 'ics-' + hash((ev.uid || ev.text + ev.start.day) + (ev.recurrence ? '@' + ev.recurrence.day : ''))
+      const e = { id: id, createdAt: now, updatedAt: Math.min(ev.modified || 1, now), text: ev.text || '?', day: ev.start.day, time: ev.start.time,
         place: ev.place || '', details: ev.details || '', skip: ev.skip,
         remind: ev.remind.map(m => (ev.start.time ? m : m + 9 * 60)).filter(m => m >= 0) }
       if (ev.end) {
@@ -513,24 +619,30 @@
         const r = {}; ev.rrule.split(';').forEach(p => { const kv = p.split('='); r[kv[0].toUpperCase()] = kv[1] })
         const n = +r.INTERVAL || 1
         const by = (r.BYDAY || '').split(',').map(d => ICS_DAYS.indexOf(d.replace(/^[-+\d]+/, '')) + 1).filter(d => d > 0)
+        const ord = /^([-+]?\d)([A-Z]{2})$/.exec(r.BYDAY || '') // 2TH, -1FR: the Nth weekday of the month
+        const nth = ord ? +ord[1] : r.BYSETPOS && by.length === 1 ? +r.BYSETPOS : 0
         e.repeat = r.FREQ === 'DAILY' ? (n > 1 ? 'days:' + n : 'daily')
           : r.FREQ === 'WEEKLY' ? (by.length === 5 && by.join() === '1,2,3,4,5' && n === 1 ? 'weekdays' : by.length && n === 1 ? 'weekly:' + by.join(',') : n > 1 ? 'weeks:' + n : 'weekly')
-          : r.FREQ === 'MONTHLY' ? 'monthly' : r.FREQ === 'YEARLY' ? 'yearly' : null
+          : r.FREQ === 'MONTHLY' ? (nth && by.length === 1 && n === 1 ? 'nth:' + nth + ':' + by[0] : n > 1 ? 'months:' + n : 'monthly')
+          : r.FREQ === 'YEARLY' ? 'yearly' : null
         if (r.UNTIL) { const u = dt(r.UNTIL, ''); if (u) e.until = u.day }
         else if (r.COUNT && e.repeat) { // keep the exact number of occurrences
           let d = e.day; for (let c = 1; c < +r.COUNT && d; c++) d = nextDay(e.day, e.repeat, addDays(d, 1), null, null)
           if (d) e.until = d
         }
       }
+      e.uid = ev.uid; e.moved = ev.recurrence ? ev.recurrence.day : null; e.cancelled = !!ev.cancelled // a cancelled session only skips its day
       return e
     })
+    out.filter(e => e.moved).forEach(o => { const master = out.find(m => m.uid === o.uid && !m.moved); if (master && master.skip.indexOf(o.moved) < 0) master.skip.push(o.moved) })
+    return out.filter(e => !e.cancelled).map(e => { delete e.uid; delete e.moved; delete e.cancelled; return e })
   }
   function hash(s) { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0; return h.toString(36) }
 
   const api = {
     MORNING, SECTIONS, pad, ymd, hm, stamp, ms, toDate, parseDay, dayOf, timeOf, addDays, addMonths, between, weekday, today,
     repeatDays, nextDay, occursOn, nextOccurrence, eventSpan, eventStartOn, eventsOn, alarms, nextAlarm,
-    sectionOf, sortTasks, complete, postpone, streak, doneSince, level,
+    sectionOf, sortTasks, complete, postpone, histTime, streak, doneSince, level,
     newId, normalize, empty, find, merge, purge, live, fold, matches, tags, parse, toIcs, fromIcs, rrule,
   }
   if (typeof module !== 'undefined' && module.exports) module.exports = api

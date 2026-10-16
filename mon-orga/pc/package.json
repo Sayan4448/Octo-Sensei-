@@ -29,6 +29,7 @@
       "main.js",
       "preload.js",
       "sync.js",
+      "rules.js",
       "package.json",
       "build/icon.png",
       {

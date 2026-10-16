@@ -5,6 +5,7 @@ const fs = require('fs')
 const path = require('path')
 const { pathToFileURL } = require('url')
 const phone = require('./sync.js')
+const rules = require('./rules.js')
 
 const WEB = app.isPackaged ? path.join(__dirname, 'web') : path.join(__dirname, '..', 'web', 'src')
 const Store = require(path.join(WEB, 'store.js'))
@@ -34,7 +35,7 @@ let doc = null; let settings = null; let local = null
 function loadAll() {
   doc = Store.normalize(readJson('mon-orga.json', {}))
   settings = readJson('settings.json', {})
-  local = Object.assign({ snoozes: {}, nags: {}, lastCheck: Date.now(), lastSummary: null, sync: null }, readJson('local.json', {}))
+  local = Object.assign({ snoozes: {}, nags: {}, lastCheck: Date.now(), lastSummary: null, sync: null, backup: null }, readJson('local.json', {}))
 }
 function saveDoc(next) {
   doc = Store.purge(Store.normalize(next), Date.now())
@@ -43,18 +44,30 @@ function saveDoc(next) {
   try { if (!fs.existsSync(backup) || Date.now() - fs.statSync(backup).mtimeMs > 86400000) fs.copyFileSync(file('mon-orga.json'), backup) } catch (e) { /* not vital */ }
 }
 const saveLocal = () => writeJson('local.json', local)
+function writeBackup(now) { // one copy a day in the folder chosen by the user (a USB key, a synced drive…); a failure is retried next tick
+  try { rules.backup(local.backup.path, Store.today(now), Object.assign({}, doc, { settings })); local.backup.last = now } catch (e) { console.error('backup', e.message) }
+}
+const folderName = p => path.basename(p) || p // D:\ has no base name
 
 // ---------- words ----------
 const WORDS = {
   fr: { open: 'Ouvrir Mon Orga', newTask: 'Nouvelle tâche', syncNow: 'Synchroniser avec le téléphone', quit: 'Quitter', stillHere: 'Mon Orga reste actif près de l’horloge pour les rappels.',
-    test: 'Rappel de test', testText: 'Les rappels fonctionnent ✓', focusDone: 'C’est la pause !', focusText: '25 minutes de focus sur « {0} »', allDay: 'Journée',
-    lateSince: 'En retard depuis {0}', missed: '{0} rappels manqués', summary: 'Ta journée : {0}', late: 'en retard', save: 'Enregistrer', importTitle: 'Importer' },
+    test: 'Rappel de test', testText: 'Les rappels fonctionnent ✓', testText_s: 'Les rappels fonctionnent.', focusDone: 'C’est la pause !', focusDone_s: 'Pause conseillée',
+    focusText: '25 minutes de focus sur « {0} »', pauseDone: 'Pause terminée, on y retourne ?', pauseDone_s: 'Pause terminée', allDay: 'Journée',
+    lateSince: 'En retard depuis {0}', missed: '{0} rappels manqués', summary: 'Ta journée : {0}', summary_s: 'Aujourd’hui : {0}',
+    todo: '☐ {0}', todo_s: '• {0}', late: '⚠ {0}', late_s: '• {0} (en retard)', save: 'Enregistrer', importTitle: 'Importer' },
   en: { open: 'Open Mon Orga', newTask: 'New task', syncNow: 'Sync with the phone', quit: 'Quit', stillHere: 'Mon Orga keeps running near the clock for reminders.',
-    test: 'Test reminder', testText: 'Reminders work ✓', focusDone: 'Break time!', focusText: '25 minutes of focus on “{0}”', allDay: 'All day',
-    lateSince: 'Overdue since {0}', missed: '{0} missed reminders', summary: 'Your day: {0}', late: 'overdue', save: 'Save', importTitle: 'Import' },
+    test: 'Test reminder', testText: 'Reminders work ✓', testText_s: 'Reminders work.', focusDone: 'Break time!', focusDone_s: 'A break is advised',
+    focusText: '25 minutes of focus on “{0}”', pauseDone: 'Break over, back to it?', pauseDone_s: 'Break over', allDay: 'All day',
+    lateSince: 'Overdue since {0}', missed: '{0} missed reminders', summary: 'Your day: {0}', summary_s: 'Today: {0}',
+    todo: '☐ {0}', todo_s: '• {0}', late: '⚠ {0}', late_s: '• {0} (overdue)', save: 'Save', importTitle: 'Import' },
 }
 function lang() { const l = settings && settings.lang; return l === 'fr' || l === 'en' ? l : (/^fr/i.test(app.getLocale()) ? 'fr' : 'en') }
-function w(key, arg) { return (WORDS[lang()][key] || key).replace('{0}', arg === undefined ? '' : arg) }
+function w(key, arg) {
+  const words = WORDS[lang()]
+  if (settings && settings.sober && words[key + '_s']) key += '_s' // sober mode: no emoji, no "tu"
+  return (words[key] || key).split('{0}').join(arg === undefined ? '' : arg) // not replace(): a "$" in a task title stays as is
+}
 const timeText = ms => new Date(ms).toLocaleTimeString(lang() === 'fr' ? 'fr-FR' : undefined, { hour: '2-digit', minute: '2-digit' })
 
 // ---------- window, tray ----------
@@ -104,7 +117,8 @@ function openExternal(url) { if (/^(https?|mailto|tel):/i.test(url)) shell.openE
 const shown = new Set() // keep notifications referenced, or their click is lost
 function notify(o, onClick) {
   if (!Notification.isSupported()) return
-  const n = new Notification(Object.assign({ icon: path.join(__dirname, 'build', 'icon.png') }, o))
+  const silent = o.timeoutType !== 'never' && rules.quiet(settings.quietFrom, settings.quietTo, Store.hm(new Date())) // quiet hours: only loud ones sound
+  const n = new Notification(Object.assign({ icon: path.join(__dirname, 'build', 'icon.png'), silent }, o))
   shown.add(n)
   n.on('click', () => { shown.delete(n); if (onClick) onClick(); else showWindow() })
   n.on('close', () => shown.delete(n))
@@ -122,7 +136,7 @@ function schedule() {
 function describe(a, item) {
   const task = a.kind === 'task'
   const allDay = task ? item.due && item.due.length === 10 : !item.time
-  let when = allDay ? w('allDay') : timeText(a.occurrence)
+  let when = allDay ? w('allDay') : task ? timeText(a.occurrence) : item.time // a re-ring keeps the event's own time
   if (!task && item.end) when += ' – ' + item.end
   if (task && a.occurrence < Date.now() - 60000) when = w('lateSince', when)
   return [when, task ? '' : item.place, item.details && item.details.split('\n')[0]].filter(Boolean).join(' · ')
@@ -138,17 +152,15 @@ function tick() {
   if (late.length > 3) notify({ title: w('missed', late.length), body: late.slice(0, 6).map(a => a.title).join('\n') })
   rings.filter(a => late.length <= 3 || a.at >= now - 120000).forEach(a => {
     const item = Store.find(doc, a.id); if (!item) return
-    notify({ title: a.title, body: describe(a, item), urgency: a.loud || a.important ? 'critical' : 'normal', timeoutType: a.loud ? 'never' : 'default', silent: false },
-      () => sendAction({ type: 'open', id: a.id }))
+    const loud = a.loud || !!settings.loudAll
+    notify({ title: a.title, body: describe(a, item), urgency: loud || a.important ? 'critical' : 'normal', timeoutType: loud ? 'never' : 'default' },
+      () => { delete local.snoozes[a.id]; delete local.nags[a.id]; saveLocal(); sendAction({ type: 'open', id: a.id }) }) // a click answers: no more re-rings
   })
-  const nag = +settings.nag || 0
-  if (nag > 0) rings.filter(a => a.kind === 'task').forEach(a => { // remind again until answered
-    const count = a.snoozed ? (local.nags[a.id] || 0) + 1 : 0
-    if (count < (+settings.nagTimes || 3)) { local.snoozes[a.id] = now + nag * 60000; local.nags[a.id] = count } else delete local.nags[a.id]
-  })
+  rules.nag(rings, local, settings, now)
   if (due.some(a => a.kind === 'summary')) summary(now)
   const focus = due.find(a => a.kind === 'focus')
-  if (focus) notify({ title: w('focusDone'), body: w('focusText', focus.title) })
+  if (focus) notify(settings.focus && settings.focus.pause ? { title: w('pauseDone') } : { title: w('focusDone'), body: w('focusText', focus.title) })
+  if (local.backup && Store.today(local.backup.last) !== Store.today(now)) writeBackup(now)
   saveLocal()
   schedule()
 }
@@ -158,7 +170,7 @@ function summary(now) {
   local.lastSummary = day
   const tasks = Store.live(doc.tasks).filter(t => !t.done && t.due && Store.dayOf(t.due) <= day)
   const events = Store.eventsOn(doc.events, day)
-  const lines = tasks.map(t => (Store.dayOf(t.due) < day ? '⚠ ' : '☐ ') + t.text).concat(events.map(e => '• ' + (e.time ? e.time + ' ' : '') + e.text))
+  const lines = tasks.map(t => w(Store.dayOf(t.due) < day ? 'late' : 'todo', t.text)).concat(events.map(e => '• ' + (e.time ? e.time + ' ' : '') + e.text))
   if (lines.length) notify({ title: w('summary', lines.length), body: lines.slice(0, 6).join('\n') })
 }
 
@@ -212,6 +224,14 @@ ipcMain.handle('importFile', async () => {
   if (r.canceled || !r.filePaths[0]) return null
   return { name: path.basename(r.filePaths[0]), text: fs.readFileSync(r.filePaths[0], 'utf8') }
 })
+ipcMain.handle('chooseBackupFolder', async () => {
+  const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'] })
+  if (r.canceled || !r.filePaths[0]) return null
+  local.backup = { path: r.filePaths[0], last: 0 }; writeBackup(Date.now()); saveLocal()
+  return { name: folderName(local.backup.path), path: local.backup.path }
+})
+ipcMain.handle('clearBackupFolder', () => { local.backup = null; saveLocal(); return true })
+ipcMain.handle('backupInfo', () => { const b = local.backup; return b ? { folder: folderName(b.path), path: b.path, last: b.last } : { folder: null, path: null, last: 0 } })
 ipcMain.handle('openUrl', (e, url) => openExternal(url))
 ipcMain.handle('copy', (e, text) => { clipboard.writeText(text); return true })
 ipcMain.handle('testAlarm', (e, loud) => setTimeout(() => notify({ title: w('test'), body: w('testText'), timeoutType: loud ? 'never' : 'default', urgency: loud ? 'critical' : 'normal' }), 5000))
