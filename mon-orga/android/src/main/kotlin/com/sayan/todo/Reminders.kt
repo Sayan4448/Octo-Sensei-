@@ -30,6 +30,7 @@ object Reminders {
     const val DONE = "com.sayan.todo.DONE"
     const val UNDO = "com.sayan.todo.UNDO"
     const val SNOOZE = "com.sayan.todo.SNOOZE"
+    const val SNOOZE_HOUR = "com.sayan.todo.SNOOZE_HOUR"
     const val TOMORROW = "com.sayan.todo.TOMORROW"
     const val ALL_TOMORROW = "com.sayan.todo.ALL_TOMORROW"
     const val STOP = "com.sayan.todo.STOP"
@@ -242,17 +243,17 @@ object Reminders {
             .setWhen(a.occurrence).setShowWhen(true)
             .discreet(ctx, s, t, channel)
         if (grouped) b.setGroup(GROUP).setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
-        // Tasks: Done, Call / Directions / +N min, Later…  Events: OK, +N min, Directions / Later…
-        val call = if (task) phoneIn(item.optString("text")) else null
-        val route = place?.let { screen(ctx, ROUTE, a.id, Uri.parse("geo:0,0?q=" + Uri.encode(it))) }
+        // Done / OK, then Call and Directions when the item has a number or a place, otherwise a snooze (+1 h for a quiet
+        // task, +N min for an event or an alarm-mode task); Later… takes the third place when it is free.
+        val call = phoneIn(item.optString("text"))
         b.addAction(R.drawable.ic_check, t.getString(if (task) R.string.act_done else R.string.act_ok), action(ctx, if (task) DONE else STOP, a.id))
-        when {
-            call != null -> b.addAction(R.drawable.ic_forward, t.getString(R.string.act_call), screen(ctx, CALL, a.id, Uri.parse("tel:$call")))
-            task && route != null -> b.addAction(R.drawable.ic_forward, t.getString(R.string.act_route), route)
-            else -> b.addAction(R.drawable.ic_snooze, t.getString(R.string.act_snooze, s.snooze), action(ctx, SNOOZE, a.id))
+        if (call != null) b.addAction(R.drawable.ic_forward, t.getString(R.string.act_call), screen(ctx, CALL, a.id, Uri.parse("tel:$call")))
+        if (place != null) b.addAction(R.drawable.ic_forward, t.getString(R.string.act_route), screen(ctx, ROUTE, a.id, Uri.parse("geo:0,0?q=" + Uri.encode(place))))
+        if (call == null && place == null) {
+            if (task && !loud) b.addAction(R.drawable.ic_snooze, t.getString(R.string.act_snooze_h, 1), action(ctx, SNOOZE_HOUR, a.id))
+            else b.addAction(R.drawable.ic_snooze, t.getString(R.string.act_snooze, s.snooze), action(ctx, SNOOZE, a.id))
         }
-        if (!task && route != null) b.addAction(R.drawable.ic_forward, t.getString(R.string.act_route), route)
-        else b.addAction(R.drawable.ic_forward, t.getString(R.string.act_later), screen(ctx, LATER, a.id))
+        if (call == null || place == null) b.addAction(R.drawable.ic_forward, t.getString(R.string.act_later), screen(ctx, LATER, a.id))
         if (loud) b.setFullScreenIntent(AlarmActivity.intent(ctx, a, task), true).setOngoing(true).setDeleteIntent(action(ctx, STOP, a.id))
         val n = b.build()
         if (loud) n.flags = n.flags or Notification.FLAG_INSISTENT // the sound repeats until a button or a tap answers
@@ -371,6 +372,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 Reminders.answered(ctx, id)
             }
             Reminders.SNOOZE -> if (id != null) Reminders.snooze(ctx, id, now + settings(prefs).snooze * 60_000L)
+            Reminders.SNOOZE_HOUR -> if (id != null) Reminders.snooze(ctx, id, now + 3_600_000L)
             Reminders.TOMORROW -> if (id != null) Reminders.moveTask(ctx, id, now) { postponeTask(it, now) }
             Reminders.ALL_TOMORROW -> {
                 val doc = loadDoc(prefs)

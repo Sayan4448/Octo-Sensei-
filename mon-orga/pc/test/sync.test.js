@@ -22,6 +22,28 @@ test('ping, wrong code, then a sync that merges both ways, accents included', as
   } finally { p.server.close() }
 })
 
+test('sync v2: encrypted with a key from the code, the same bytes as Android', async () => {
+  // The vector SyncTest.kt checks too: code 123456, iv 00..0B
+  const env = phone.seal('123456', '{"ts":1,"nonce":"n","since":0,"doc":null}', Buffer.from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]))
+  assert.equal(env.data, 'k2N/cPtqBlp8j++2mW4D0hFvwvpheU13FXyhu1hauM0re0F7cdSbkJIYKu8uOWLVnO6pibbPfzbM')
+  assert.deepEqual(phone.open('123456', env), { ts: 1, nonce: 'n', since: 0, doc: null })
+  assert.throws(() => phone.open('654321', env))
+  const p = await fakePhone('123456', { notes: [{ id: 'n', text: 'Courses : lait', updatedAt: 300 }] })
+  try {
+    const back = await phone.sync(p.address, '123456', { notes: [{ id: 'n', text: 'Courses : pain', updatedAt: 200 }] }, 100)
+    assert.deepEqual(back.notes.map(n => [n.id, n.text]), [['n', 'Courses : lait'], ['n-c200', 'Courses : pain']]) // both texts kept
+    assert.ok(p.calls.includes('/api/v2/sync') && !p.calls.includes('/api/sync')) // the code never travelled
+    await assert.rejects(phone.state(p.address, '000000'), e => e.code === 'badCode')
+    p.skew = 10 * 60000 // the PC's clock 10 min behind the phone's: the PC dates its request on the phone's time
+    assert.equal((await phone.state(p.address, '123456')).notes.length, 2)
+    p.old = true // a phone still on 5.1.0
+    assert.equal((await phone.state(p.address, '123456')).notes.length, 2)
+    const memo = {} // the saved connection: once encrypted, never the old way again (someone could pose as the phone)
+    p.old = false; await phone.sync(p.address, '123456', null, 0, memo)
+    p.old = true; await assert.rejects(phone.sync(p.address, '123456', null, 0, memo), e => e.code === 'notEncrypted')
+  } finally { p.server.close() }
+})
+
 test('an unreachable phone is reported as such', async () => {
   await assert.rejects(phone.ping('127.0.0.1:1', 300), e => e.code === 'unreachable')
 })

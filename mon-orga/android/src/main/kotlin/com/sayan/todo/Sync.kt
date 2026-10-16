@@ -17,6 +17,13 @@ import java.io.IOException
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.security.SecureRandom
+import java.util.Base64
+import javax.crypto.Cipher
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.PBEKeySpec
+import javax.crypto.spec.SecretKeySpec
+import kotlin.math.abs
 
 const val SYNC_PORT = 8080
 
@@ -40,14 +47,35 @@ fun syncUrl(ctx: Context): String? = localIp()?.let { "http://$it:$SYNC_PORT/?k=
 fun syncInfo(ctx: Context): String = JSONObject().put("on", ctx.prefs().getBoolean("syncOn", false))
     .put("url", syncUrl(ctx) ?: JSONObject.NULL).put("code", syncCode(ctx)).toString()
 
+// Sync v2 (the PC app, same as pc/sync.js): the body is sealed with AES-GCM under a key made from the code, so the code
+// never travels and nobody else on the Wi-Fi can read or change the data.
+fun syncKey(code: String): SecretKeySpec = SecretKeySpec(SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+    .generateSecret(PBEKeySpec(code.toCharArray(), "mon-orga-sync-v2".toByteArray(), 100_000, 256)).encoded, "AES")
+
+// {"v":2,"iv":…,"data":…}: data is the cipher text followed by its 16-byte tag; both in standard Base64.
+fun seal(key: SecretKeySpec, plain: String, iv: ByteArray = ByteArray(12).also { SecureRandom().nextBytes(it) }): JSONObject {
+    val c = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(128, iv)) }
+    return JSONObject().put("v", 2).put("iv", Base64.getEncoder().encodeToString(iv)).put("data", Base64.getEncoder().encodeToString(c.doFinal(plain.toByteArray())))
+}
+
+// The plain text, or null when the envelope was not sealed with this key (a wrong code) or was changed on the way.
+fun unseal(key: SecretKeySpec, envelope: String): String? = runCatching {
+    val e = JSONObject(envelope)
+    val c = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, Base64.getDecoder().decode(e.getString("iv")))) }
+    String(c.doFinal(Base64.getDecoder().decode(e.getString("data"))))
+}.getOrNull()
+
 // Small HTTP server for the PC: the same interface as the app (from the assets) and the data API.
-// /api/ping answers without the code (the PC app finds the phone with it), the phone's name only with it; everything
-// else that touches data needs it. No CORS: the PC app is not a browser, and the page the phone serves is same-origin.
+// /api/ping answers without the code (the PC app finds the phone with it, and "v" tells it /api/v2/sync exists), the
+// phone's name only with it; everything else that touches data needs it, /api/v2/sync through its sealed body.
+// No CORS: the PC app is not a browser, and the page the phone serves is same-origin.
 // `code` is fixed for the tests; otherwise the current one is read at every request.
 class SyncServer(private val ctx: Context, private val code: String? = null, port: Int = SYNC_PORT) : NanoHTTPD(port) {
     private var failures = 0
     private var lockouts = 0
     private var blockedUntil = 0L
+    private val nonces = HashMap<String, Long>() // v2 requests served in the last 5 minutes: nonce -> when
+    private var codeKey: Pair<String, SecretKeySpec>? = null // the current code's key: deriving one takes a while
     internal var clock: () -> Long = System::currentTimeMillis
 
     override fun serve(session: IHTTPSession): Response = noStore(
@@ -56,7 +84,9 @@ class SyncServer(private val ctx: Context, private val code: String? = null, por
 
     private fun route(s: IHTTPSession): Response {
         val uri = s.uri
-        if (uri == "/api/ping") return json(JSONObject().put("app", "mon-orga").put("ok", true).apply { if (codeOk(s.parms["k"])) put("name", Build.MODEL) }.toString())
+        if (uri == "/api/ping") return json(JSONObject().put("app", "mon-orga").put("ok", true).put("v", 2).put("now", clock()) // "now": the PC dates its requests on the phone's clock
+            .apply { if (codeOk(s.parms["k"])) put("name", Build.MODEL) }.toString())
+        if (uri == "/api/v2/sync" && s.method == Method.POST) return sealedSync(s)
         val wantsData = uri.startsWith("/api/") || uri == "/" || uri == "/index.html"
         if (wantsData && !codeOk(s.parms["k"])) {
             return if (uri.startsWith("/api/")) text(Response.Status.UNAUTHORIZED, "Code incorrect") else html(CODE_PAGE)
@@ -64,25 +94,47 @@ class SyncServer(private val ctx: Context, private val code: String? = null, por
         val prefs = ctx.prefs()
         return when {
             uri == "/api/state" -> json(loadDoc(prefs).toString())
-            uri == "/api/sync" && s.method == Method.POST -> {
-                val body = HashMap<String, String>()
-                s.parseBody(body)
-                val merged = syncDoc(prefs, JSONObject(body["postData"] ?: "{}"))
-                    ?: return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json", """{"error":"storage"}""")
-                Reminders.edited(ctx); Widget.update(ctx)
-                json(merged.toString())
-            }
+            uri == "/api/sync" && s.method == Method.POST -> json((store(JSONObject(body(s))) ?: return storageError()).toString())
             uri.startsWith("/api/") -> text(Response.Status.NOT_FOUND, "")
             else -> asset(uri.trimStart('/').ifEmpty { "index.html" })
         }
     }
 
+    // {"ts","nonce","since","doc"} sealed with the code's key; the answer {"ts","doc"} is sealed the same way. A body that does
+    // not open counts as a wrong code. One sealed more than 2 minutes away from now, or already served, is refused without
+    // counting either way: a recorded request played again must not clear the count of wrong codes.
+    private fun sealedSync(s: IHTTPSession): Response {
+        val key = keyOf(code ?: syncCode(ctx))
+        val req = unseal(key, body(s))?.let { runCatching { JSONObject(it) }.getOrNull() }
+        if (!attempt(if (req == null) false else if (fresh(req)) true else null) || req == null) return text(Response.Status.UNAUTHORIZED, "Code incorrect")
+        val doc = req.optJSONObject("doc")?.let { store(it, req.optLong("since")) ?: return storageError() } ?: loadDoc(ctx.prefs())
+        return json(seal(key, JSONObject().put("ts", clock()).put("doc", doc).toString()).toString())
+    }
+
+    // Merges what the PC sent into the phone's copy (rule R5 with `since`); reminders and the widget follow. Null: not stored.
+    private fun store(incoming: JSONObject, since: Long = 0): JSONObject? = syncDoc(ctx.prefs(), incoming, since)?.also { Reminders.edited(ctx); Widget.update(ctx) }
+
+    private fun body(s: IHTTPSession): String = HashMap<String, String>().also { s.parseBody(it) }["postData"] ?: "{}"
+
+    @Synchronized private fun keyOf(c: String): SecretKeySpec = codeKey?.takeIf { it.first == c }?.second ?: syncKey(c).also { codeKey = c to it }
+
+    @Synchronized private fun fresh(req: JSONObject): Boolean {
+        val now = clock(); val nonce = req.optString("nonce")
+        nonces.values.removeAll { it < now - 300_000 }
+        if (abs(now - req.optLong("ts")) > 120_000 || nonce.isEmpty() || nonce in nonces) return false
+        nonces[nonce] = now
+        return true
+    }
+
+    private fun codeOk(k: String?): Boolean = attempt(k?.let { it == (code ?: syncCode(ctx)) })
+
     // 10 wrong codes: refuse everything for a minute, then 2, 4… up to an hour for each further 10 (6 digits must not be guessable in a loop).
-    @Synchronized private fun codeOk(k: String?): Boolean {
+    // `ok` null: nothing to judge (no code given), which does not count.
+    @Synchronized private fun attempt(ok: Boolean?): Boolean {
         val now = clock()
         if (now < blockedUntil) return false
-        if (k == (code ?: syncCode(ctx))) { failures = 0; lockouts = 0; return true }
-        if (k != null && ++failures >= 10) { failures = 0; blockedUntil = now + minOf(60L, 1L shl minOf(lockouts, 6)) * 60_000; lockouts++ }
+        if (ok == true) { failures = 0; lockouts = 0; return true }
+        if (ok == false && ++failures >= 10) { failures = 0; blockedUntil = now + minOf(60L, 1L shl minOf(lockouts, 6)) * 60_000; lockouts++ }
         return false
     }
 
@@ -96,6 +148,7 @@ class SyncServer(private val ctx: Context, private val code: String? = null, por
     }
 
     private fun json(s: String) = newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", s)
+    private fun storageError() = newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json", """{"error":"storage"}""")
     private fun text(status: Response.Status, s: String) = newFixedLengthResponse(status, "text/plain; charset=utf-8", s)
     private fun html(s: String) = newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", s)
 

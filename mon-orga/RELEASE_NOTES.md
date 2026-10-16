@@ -9,6 +9,21 @@
 **Android** : ouvre le fichier, autorise « Installer des applis inconnues » si on te le demande. Pour mettre à jour, installe **par-dessus** l'ancienne version, sans la désinstaller (sinon tes données partent avec).
 **Windows** : l'app n'est pas signée, Windows peut afficher « Windows a protégé votre ordinateur » : clique sur **Informations complémentaires**, puis **Exécuter quand même**.
 
+## Nouveautés de la version 5.1.1
+
+Une troisième vague de 50 testeurs a noté la 5.1 : 7,9/10 de moyenne, 40 sur 50 à 8 ou plus. Voici ce qui manquait aux 10 autres. Ils ont retesté cette version : **les 50 testeurs sont maintenant à 8/10 ou plus** (8,1 de moyenne).
+
+- 🔒 **Synchro PC chiffrée** : entre l'appli PC et le téléphone, les données passent chiffrées avec une clé tirée du code, et le code ne circule plus sur le Wi-Fi. Une fois la synchro chiffrée en place, l'appli PC refuse de revenir à l'ancienne méthode.
+- 🔒 **Sauvegarde Google au choix** : *Plus → Confidentialité* permet de ne plus rien envoyer dans la sauvegarde Google du téléphone (c'est automatique avec le verrou).
+- 🔄 **Plus de texte perdu à la synchro** : une note modifiée sur le PC et sur le téléphone en même temps garde les deux versions (la seconde est marquée « Conflit »).
+- ❗ **Trois niveaux de priorité** : « ! », « !! », « !!! » (ou p3, p2, p1) dans la phrase ou dans la fiche ; les plus importantes passent en tête de leur journée.
+- 📞 **Appeler et Itinéraire** d'un geste : bouton sur la ligne des tâches *et* des rendez-vous, et dans la notification (les deux ensemble quand il y a un numéro et une adresse). Les tâches ont **+1 h** directement dans la notification ; l'écran réveil a **+10 min** et **+1 h**.
+- 🏠 « Chantier jeudi 8h **12 rue des Lilas** » : le numéro de rue n'est plus pris pour des minutes. « Cardiologue jeudi 10h », « Chantier… » ou « Dépannage… » tapés dans Tâches proposent d'en faire un rendez-vous. « Médicament à **8h 12h 19h** » marche aussi sans virgules. Le micro de l'Agenda crée un rendez-vous. Un numéro tapé **après l'adresse** reste dans le titre (le bouton Appeler est gardé), « 06.12.34.56.78 » n'est plus pris pour une date, et l'aperçu montre le lieu trouvé avant d'enregistrer.
+- 📸 **Partager mes progrès** en image, prête pour une story.
+- 🗂️ **Archiver une liste** de projet terminé (Plus → Mes listes), et la restaurer.
+- ⚙️ Si tu avais la v5 ou la 5.1 : les rendez-vous préviennent maintenant **la veille et 1 h avant**, avec relances et résumé du matin à 8 h (modifiable dans Plus → Rappels). La fenêtre « Quoi de neuf » propose de passer aussi tes rendez-vous déjà prévus aux nouveaux rappels, ou de garder tes anciens réglages si tu les avais choisis exprès.
+- ⌨️ Ctrl+Entrée enregistre et ferme une fiche.
+
 ## Nouveautés de la version 5.1
 
 Cette version vient des avis de 50 testeurs (lycéen, infirmière, artisan, comptable, personnes âgées, malvoyants…).
@@ -40,6 +55,8 @@ Cette version vient des avis de 50 testeurs (lycéen, infirmière, artisan, comp
 - 🎨 Mode sobre (sans emoji ni petites phrases), couleurs douces, mode gaucher, texte plus grand, thème clair/sombre, **English**.
 
 ## In English
+
+**5.1.1**: the PC sync is encrypted (the code no longer travels), the phone's Google backup can be turned off (automatic with the lock), a note changed on both devices keeps both texts, three priority levels, call and directions buttons on tasks and events, +1 h in the notification, street numbers no longer read as minutes, progress shared as a picture, archived lists.
 
 **5.1**: your streak and level are kept (they were reset after each save), richer sentences (“remind me 1 hour before”, “alarm”, “6pm-1am”, “on the 1st”), repeats every N months and on the 1st Monday, one session of a series can change alone, long press on a task to move it, the phone's Google calendar shown read only, automatic daily backups to a folder, quiet nights, “all reminders as alarms”, better accessibility.
 

@@ -1,4 +1,6 @@
-<!-- Photos taken for a note ("Camera" in the picker) wait here until the page has read them. -->
+<!-- Photos taken for a note ("Camera" in the picker) wait here until the page has read them; "share" holds the picture
+     the page shares (shareImage). -->
 <paths>
     <cache-path name="camera" path="camera/" />
+    <cache-path name="share" path="share/" />
 </paths>

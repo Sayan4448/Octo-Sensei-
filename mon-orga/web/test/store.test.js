@@ -210,6 +210,45 @@ test('English: short day names, "at 7", "on the 1st"', () => {
   assert.equal(p('Pay bills on the 15th').due, '2026-11-15')
 })
 
+test('sync: a note changed on both sides keeps the other text as a copy (fixtures)', () => {
+  F.merge.forEach(([local, remote, since, expected], i) => {
+    assert.deepEqual(S.merge(local, remote, since).notes.map(n => [n.id, n.text]), expected, 'case ' + i)
+  })
+  const copy = S.merge(F.merge[0][0], F.merge[0][1], 100).notes[1]
+  assert.deepEqual([copy.conflictOf, copy.pinned, copy.updatedAt], ['n', false, 200])
+  const both = S.merge(S.merge(F.merge[0][0], F.merge[0][1], 100), F.merge[0][0], 100) // merging again adds nothing
+  assert.deepEqual(both.notes.map(n => n.id), ['n', 'n-c200'])
+})
+
+test('priorities: "!" to "!!!" or p3 to p1, most important first within a day', () => {
+  assert.deepEqual([S.parse('Rapport !!! demain', NOW).prio, S.parse('Relancer p1', NOW).prio, S.parse('Banque !', NOW).prio], [3, 3, 1])
+  const doc = S.normalize({ tasks: [{ id: 'a', due: '2026-10-16T09:00' }, { id: 'b', due: '2026-10-16T18:00', important: true, prio: 2 }, { id: 'c', due: '2026-10-16T12:00', important: true }] })
+  assert.deepEqual(S.sortTasks(doc.tasks, NOW).map(t => t.id), ['b', 'c', 'a'])
+  assert.equal(S.normalize({ tasks: [{ prio: 3 }] }).tasks[0].prio, 0) // a priority goes with the star
+  const range = S.parse('Communiquer pièces p1 à p12 avant le 20/10', NOW) // "p1" is a document here
+  assert.deepEqual([range.text, range.prio], ['Communiquer pièces p1 à p12 avant', undefined])
+  assert.equal(S.parse('Appeler le client p1 à 14h', NOW).prio, 3)
+})
+
+test('a phone number is never a date, a time or part of the address', () => {
+  const p = S.parse('Visite jeudi 10h Mme Durand 06.12.34.56.78', NOW)
+  assert.deepEqual([p.text, p.due], ['Visite Mme Durand 06.12.34.56.78', '2026-10-22T10:00'])
+  const q = S.parse('Fuite demain 14h 3 bis avenue Foch 06 12 34 56 78', NOW)
+  assert.deepEqual([q.text, q.place], ['Fuite 06 12 34 56 78', '3 bis avenue Foch'])
+  const r = S.parse('Visite demain 14h30 au 3 avenue Foch, Mme Durand tél : 06 12 34 56 78', NOW)
+  assert.deepEqual([r.text, r.place], ['Visite Mme Durand tél : 06 12 34 56 78', '3 avenue Foch'])
+  assert.equal(S.parse('Livraison jeudi 10h 5 rue Madame, 75006 Paris', NOW).place, '5 rue Madame, 75006 Paris') // a street named Madame
+  assert.equal(S.parse('Appeler +33 6 12 34 56 78 demain', NOW).text, 'Appeler +33 6 12 34 56 78')
+})
+
+test('a street number is never read as minutes, pills without commas', () => {
+  const p = S.parse('Chantier Dupont jeudi 8h 12 rue des Lilas', NOW)
+  assert.deepEqual([p.text, p.due, p.place], ['Chantier Dupont', '2026-10-22T08:00', '12 rue des Lilas'])
+  assert.equal(S.parse('RDV 8h 30', NOW).due, '2026-10-17T08:30')
+  assert.deepEqual(S.parse('Médicament à 8h 12h 19h tous les jours', NOW).dues, ['2026-10-17T08:00', '2026-10-16T12:00', '2026-10-16T19:00'])
+  assert.deepEqual(S.parse('Cachets matin midi soir', NOW).dues, ['2026-10-17T08:00', '2026-10-16T12:00', '2026-10-16T19:00'])
+})
+
 test('calendar files: monthly patterns and moved occurrences', () => {
   const doc = S.normalize({ events: [{ id: 'q', text: 'Bilan', day: '2026-10-16', time: null, repeat: 'months:3' }, { id: 'n', text: 'Réunion', day: '2026-11-02', time: '18:00', repeat: 'nth:1:1' }] })
   const ics = S.toIcs(doc, NOW)

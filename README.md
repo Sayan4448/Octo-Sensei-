@@ -69,8 +69,8 @@ Sans l'appli PC, tape l'adresse affichée dans n'importe quel navigateur (Mac co
 
 Pas de compte, pas de pub : Mon Orga n'envoie rien sur Internet, tout reste sur ton téléphone et ton PC. Deux précisions honnêtes :
 
-- si la **sauvegarde Google** du téléphone est activée, Android y copie aussi les données de Mon Orga (chiffrées avec le code de ton téléphone) ;
-- la **synchro** passe directement par ton Wi-Fi, protégée par le code à 6 chiffres mais pas chiffrée : utilise-la chez toi, pas sur un Wi-Fi public. *Plus → Nouveau code* coupe les PC déjà reliés.
+- si la **sauvegarde Google** du téléphone est activée, Android y copie aussi les données de Mon Orga (chiffrées avec le code de ton téléphone). Tu peux la couper dans *Plus → Confidentialité* ; avec le verrou, elle est coupée d'office ;
+- la **synchro** passe directement par ton Wi-Fi. Avec l'appli PC, tout est **chiffré** avec une clé tirée du code à 6 chiffres, et le code ne circule pas. Dans un simple navigateur (sans l'appli PC), ce n'est pas chiffré : fais-le chez toi, pas sur un Wi-Fi public. *Plus → Nouveau code* coupe les PC déjà reliés.
 
 ### 🧑‍💻 Le code
 
@@ -145,6 +145,6 @@ Pour être sûr que c'est lui, commence ton message par `@agent-octo-sensei` (ou
 
 **Sync with the PC**: put both on the same Wi-Fi. On the phone, *More → Open Mon Orga on the PC*, turn the switch on: an address and a 6-digit code appear. On the PC app, *More → Find my phone* and type the code. Without the PC app, type the address in any browser (Mac included).
 
-**Your data**: nothing is sent over the Internet. If the phone's Google backup is on, Android also copies Mon Orga's data there (encrypted with your screen lock). The sync is protected by the code but not encrypted: use it at home, not on public Wi-Fi.
+**Your data**: nothing is sent over the Internet. If the phone's Google backup is on, Android also copies Mon Orga's data there (encrypted with your screen lock); turn it off in *More → Privacy* (it is off with the lock). Between the PC app and the phone the sync is encrypted with a key derived from the code, which never travels; in a plain browser it is not encrypted, so use that at home only.
 
 **Octo-Sensei** is a Claude Code agent for GitHub and git work: clean pull requests, red CI, merge conflicts, reviews, issues and releases.

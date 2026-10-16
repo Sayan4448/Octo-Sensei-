@@ -184,9 +184,12 @@ async function syncWithPhone() {
   if (syncing) return syncing
   syncing = (async () => {
     try {
-      const back = await phone.sync(local.sync.address, local.sync.code, doc)
-      const merged = Store.merge(doc, back)
+      const since = local.sync.last || 0 // a note changed on both sides since then keeps both texts
+      const started = Date.now()
+      const back = await phone.sync(local.sync.address, local.sync.code, doc, since, local.sync)
+      const merged = Store.merge(doc, back, since)
       if (JSON.stringify(merged) !== JSON.stringify(doc)) { saveDoc(merged); schedule(); changed() }
+      local.sync.last = started; saveLocal()
       Object.assign(status, { ok: true, error: null, last: Date.now() })
       return { ok: true }
     } catch (e) {

@@ -237,3 +237,106 @@ test('the 5.1 tools: long press, imports, repeats, backups', { skip: !playwright
     await browser.close(); server.close()
   }
 })
+
+test('5.1.1: settings from 5.0 and 5.1, call and directions, priorities typed, archived lists, conflicts, progress picture', { skip: !playwright && 'playwright is not installed' }, async t => {
+  const server = await serve(0)
+  const url = 'http://127.0.0.1:' + server.address().port + '/index.html'
+  const browser = await playwright.chromium.launch()
+  const ctx = await browser.newContext({ viewport: { width: 412, height: 860 }, locale: 'fr-FR', timezoneId: 'Europe/Paris', acceptDownloads: true })
+  const t0 = NOW.getTime()
+  await ctx.addInitScript(t0 => {
+    if (sessionStorage.getItem('seeded')) return
+    sessionStorage.setItem('seeded', '1')
+    localStorage.setItem('mon-orga-doc', JSON.stringify({
+      tasks: [{ id: 'g', text: 'Rappeler le garage 06 12 34 56 78', due: '2026-10-16T14:00', place: '3 rue des Lilas', list: 'Voiture' }, { id: 'h', text: 'Ancien projet', list: 'Projet X' }],
+      events: [{ id: 'd', text: 'Dentiste 04 72 00 00 00', day: '2026-10-16', time: '16:30', remind: [60] }, { id: 'o', text: 'Ophtalmo', day: '2026-11-03', time: '10:00', remind: [15] }],
+      notes: [{ id: 'n', text: 'Courses', updatedAt: t0 }, { id: 'n-c1', text: 'Courses (autre)', conflictOf: 'n', updatedAt: t0 - 1 }],
+      history: [(t0 - 86400000) + ':g'],
+    }))
+    localStorage.setItem('mon-orga-settings', JSON.stringify({ welcomed: true, news: 51, remindEvent: [15], nag: 0, summary: null, snooze: 10 })) // 5.0 then 5.1: the old values, news seen
+  }, t0)
+  const page = await ctx.newPage()
+  page.setDefaultTimeout(5000)
+  const errors = []
+  page.on('pageerror', e => errors.push(e.message))
+  page.on('console', m => { if (m.type() === 'error') errors.push(m.text()) })
+  await page.clock.setFixedTime(NOW)
+  try {
+    await page.goto(url); await page.waitForSelector('#addInput')
+    await t.test('coming from 5.0 through 5.1: the new defaults, said once, planned events too if asked', async () => {
+      const text = await page.textContent('.dlg')
+      assert.match(text, /5\.1\.1[\s\S]*Nouveaux réglages par défaut/)
+      assert.doesNotMatch(text, /tous les 3 mois/) // the 5.1 list was already seen
+      assert.ok(await page.$('.dlg .menu-item:has-text("Garder mes anciens réglages de rappel")')) // they may have been chosen on purpose
+      await page.click('.dlg .menu-item:has-text("Appliquer aussi au rendez-vous déjà prévu")')
+      const s = await page.evaluate(() => JSON.parse(localStorage.getItem('mon-orga-settings')))
+      assert.deepEqual([s.remindEvent, s.nag, s.summary, s.news, s.before511], [[60, 1440], 10, '08:00', 52, null])
+      const remind = id => page.evaluate(id => JSON.parse(localStorage.getItem('mon-orga-doc')).events.find(e => e.id === id).remind, id)
+      assert.deepEqual([await remind('o'), await remind('d')], [[60, 1440], [60]]) // only the old default changes
+    })
+    await t.test('a number and a place: call and directions on the rows', async () => {
+      assert.ok(await page.$('.row.task[data-id="g"] .call[data-href="tel:0612345678"]'))
+      assert.match(await page.getAttribute('.row.task[data-id="g"] .route', 'data-href'), /maps.*3%20rue%20des%20Lilas/)
+      await page.click('#nav [data-tab="agenda"]')
+      assert.ok(await page.$('.row.event[data-id="d"] .call[data-href="tel:0472000000"]'))
+    })
+    await t.test('priority from the editor, sorted first', async () => {
+      await page.click('#nav [data-tab="tasks"]')
+      await page.click('.row.task[data-id="h"] .body')
+      await page.click('[data-act="prio"][data-v="3"]')
+      await page.click('[data-act="close"]')
+      assert.match(await page.textContent('.row.task[data-id="h"]'), /!!!/)
+    })
+    await t.test('typed: the priority is kept, a number after the address stays in the title', async () => {
+      await page.fill('#addInput', 'Relire la maquette !!! demain')
+      await page.press('#addInput', 'Enter')
+      assert.match(await page.textContent('.row.task:has-text("Relire la maquette")'), /!!!/)
+      await page.fill('#addInput', 'Fuite demain 14h 3 bis avenue Foch 06.12.34.56.78')
+      assert.match(await page.textContent('#addHint'), /3 bis avenue Foch/) // the place found, before saving
+      await page.press('#addInput', 'Enter')
+      const row = '.row.task:has-text("Fuite")'
+      assert.ok(await page.$(row + ' .call[data-href="tel:0612345678"]'))
+      assert.match(await page.getAttribute(row + ' .route', 'data-href'), /query=3%20bis%20avenue%20Foch$/)
+    })
+    await t.test('an archived list leaves the screen and comes back', async () => {
+      await page.click('#nav [data-tab="plus"]')
+      await page.click('[data-act="list-archive"][data-v="Projet X"]')
+      await page.click('#nav [data-tab="tasks"]')
+      assert.equal(await page.$('.row.task[data-id="h"]'), null)
+      await page.click('#nav [data-tab="plus"]')
+      await page.click('[data-act="list-archive"][data-v="Projet X"]')
+      await page.click('#nav [data-tab="tasks"]')
+      assert.ok(await page.$('.row.task[data-id="h"]'))
+    })
+    await t.test('a sync conflict copy says what it is', async () => {
+      await page.click('#nav [data-tab="notes"]')
+      assert.match(await page.textContent('.card.note:has-text("Courses (autre)")'), /Conflit/)
+    })
+    await t.test('my progress as a picture', async () => {
+      await page.click('#nav [data-tab="plus"]')
+      const download = page.waitForEvent('download')
+      await page.click('[data-act="share-progress"]')
+      assert.equal((await download).suggestedFilename(), 'mon-orga-progres.png')
+    })
+    await t.test('Ctrl+Enter saves and closes an editor', async () => {
+      await page.click('#nav [data-tab="tasks"]')
+      await page.click('.row.task[data-id="g"] .body')
+      await page.keyboard.press('Control+Enter')
+      assert.equal(await page.$('#sheet:not([hidden])'), null)
+    })
+    await t.test('reminder settings chosen in 5.1 can be kept', async () => {
+      const c2 = await browser.newContext({ viewport: { width: 412, height: 860 }, locale: 'fr-FR', timezoneId: 'Europe/Paris' })
+      await c2.addInitScript(() => { if (!localStorage.getItem('mon-orga-settings')) localStorage.setItem('mon-orga-settings', JSON.stringify({ welcomed: true, news: 51, remindEvent: [15], nag: 0, summary: null })) })
+      const p2 = await c2.newPage()
+      await p2.clock.setFixedTime(NOW)
+      await p2.goto(url)
+      await p2.click('.dlg .menu-item:has-text("Garder mes anciens réglages de rappel")')
+      const s = await p2.evaluate(() => JSON.parse(localStorage.getItem('mon-orga-settings')))
+      assert.deepEqual([s.remindEvent, s.nag, s.summary, s.news], [[15], 0, null, 52])
+      await c2.close()
+    })
+    assert.deepEqual(errors, [])
+  } finally {
+    await browser.close(); server.close()
+  }
+})

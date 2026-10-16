@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.view.View
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
@@ -43,6 +44,7 @@ class AlarmActivity : Activity() {
         fun button(viewId: Int, label: String, click: () -> Unit) = findViewById<Button>(viewId).apply { text = label; setOnClickListener { click() } }
         button(R.id.alarm_done, t.getString(if (task) R.string.act_done else R.string.act_ok)) { if (task) unlocked { send(Reminders.DONE) } else send(Reminders.STOP) }
         button(R.id.alarm_snooze, t.getString(R.string.act_snooze, s.snooze)) { send(Reminders.SNOOZE) }
+        button(R.id.alarm_hour, t.getString(R.string.act_snooze_h, 1)) { send(Reminders.SNOOZE_HOUR) }.visibility = if (s.snooze == 60) View.GONE else View.VISIBLE
         button(R.id.alarm_later, t.getString(R.string.act_later)) { unlocked { startActivity(SnoozeActivity.intent(this, id)); finish() } }
         button(R.id.alarm_stop, t.getString(R.string.act_stop)) { send(Reminders.STOP) }
     }
@@ -80,7 +82,7 @@ class SnoozeActivity : AppCompatActivity() {
         val hm = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(t.resources.configuration.locales[0])
         // Minutes and "tonight" only snooze this phone; "tomorrow" moves a task (seen everywhere) and snoozes an event.
         val choices = mutableListOf<Pair<String, () -> Unit>>()
-        for (m in listOf(s.snooze, 60, 180).distinct()) {
+        for (m in listOf(10, 30, 60, 180)) {
             choices += t.getString(if (m % 60 == 0) R.string.act_snooze_h else R.string.act_snooze, if (m % 60 == 0) m / 60 else m) to
                 { Reminders.snooze(this, id, System.currentTimeMillis() + m * 60_000L) }
         }

@@ -3,8 +3,8 @@
  * One JSON document, merged item by item (newest `updatedAt` wins), so the phone, the PC and a backup file
  * can each be edited offline and synced later. The Android side (Store.kt) reads the same format.
  *
- *  task  {id, createdAt, updatedAt, deleted, text, done, due, remind, repeat, until, important, list, steps, details, loud, doneAt, place}
- *  note  {id, createdAt, updatedAt, deleted, text, pinned, list, images}
+ *  task  {id, createdAt, updatedAt, deleted, text, done, due, remind, repeat, until, important, prio (1-3 when important), list, steps, details, loud, doneAt, place}
+ *  note  {id, createdAt, updatedAt, deleted, text, pinned, list, images, conflictOf (a copy kept by a sync conflict)}
  *  event {id, createdAt, updatedAt, deleted, day, time, end, endDay, text, place, details, remind, repeat, until, skip, loud, important, list, noteId}
  *  history "ms:taskId" for each tick, "ms:taskId:x" when that tick was undone (the latest entry of the day wins)
  *  due   "2026-10-17T09:00" (with a time) or "2026-10-17" (a day only: reminders count from 09:00)
@@ -191,13 +191,14 @@
     return 'later'
   }
   const dueMs = t => ms(t.due.length > 10 ? t.due : t.due + 'T00:00')
+  const pri = t => (t.important ? t.prio || 1 : 0) // 0 none, 1 = ★ or "!", 2 = "!!", 3 = "!!!" (p1)
   function sortTasks(tasks, now, dayStart) {
     const rank = t => SECTIONS.indexOf(sectionOf(t, now, dayStart))
     return tasks.filter(t => !t.deleted).slice().sort((a, b) =>
       rank(a) - rank(b) ||
       (a.done ? (b.doneAt || 0) - (a.doneAt || 0) : 0) ||
+      pri(b) - pri(a) || // within a day, the most important first
       (a.due && b.due ? dueMs(a) - dueMs(b) : 0) ||
-      (b.important ? 1 : 0) - (a.important ? 1 : 0) ||
       (b.createdAt || 0) - (a.createdAt || 0))
   }
   // Ticks a task. A repeating one moves to its next date instead (steps unticked), unless the series is over.
@@ -264,7 +265,7 @@
     const out = Object.assign({}, d, { app: 'mon-orga', version: 2 })
     out.tasks = (Array.isArray(d.tasks) ? d.tasks : []).map(t => Object.assign({}, t, base(t, now), {
       text: str(t.text), done: !!t.done, due: opt(t.due), remind: mins(t.remind), repeat: opt(t.repeat), until: opt(t.until), place: str(t.place),
-      important: !!t.important, list: str(t.list), details: str(t.details), loud: !!t.loud, doneAt: +t.doneAt || null,
+      important: !!t.important, prio: t.important ? Math.max(0, Math.min(3, +t.prio || 0)) : 0, list: str(t.list), details: str(t.details), loud: !!t.loud, doneAt: +t.doneAt || null,
       steps: (Array.isArray(t.steps) ? t.steps : []).map(s => ({ text: str(s.text), done: !!s.done })),
     }))
     out.notes = (Array.isArray(d.notes) ? d.notes : []).map(n => Object.assign({}, n, base(n, now), {
@@ -283,18 +284,24 @@
     for (let k = 0; k < KINDS.length; k++) { const it = doc[KINDS[k]].find(x => x.id === id); if (it) return it }
     return null
   }
-  // Newest edit of each item wins; deletions travel as tombstones.
-  function merge(local, remote) {
+  // Newest edit of each item wins; deletions travel as tombstones. With `since` (the last sync between two devices),
+  // a note whose text changed on both sides since then keeps the older text as a copy next to it ("<id>-c<time>").
+  function merge(local, remote, since) {
     const a = normalize(local); const b = normalize(remote)
     const out = Object.assign({}, a)
     KINDS.forEach(k => {
-      const byId = {}; const order = []
+      const byId = {}; const order = []; const copies = {}
       a[k].concat(b[k]).forEach(it => {
         const cur = byId[it.id]
         if (!cur) order.push(it.id)
+        else if (k === 'notes' && since > 0 && cur.text !== it.text && !cur.deleted && !it.deleted && cur.updatedAt > since && it.updatedAt > since) {
+          const loser = it.updatedAt > cur.updatedAt ? cur : it
+          copies[it.id] = Object.assign({}, loser, { id: loser.id + '-c' + loser.updatedAt, conflictOf: loser.id, pinned: false, createdAt: loser.updatedAt })
+        }
         if (!cur || it.updatedAt > cur.updatedAt) byId[it.id] = it
       })
-      out[k] = order.map(id => byId[id])
+      out[k] = []
+      order.forEach(id => { out[k].push(byId[id]); const c = copies[id]; if (c && !byId[c.id]) { byId[c.id] = c; out[k].push(c) } })
     })
     const seen = {}
     out.history = a.history.concat(b.history).filter(h => (seen[h] ? false : (seen[h] = true))).sort((x, y) => histTime(x) - histTime(y)).slice(-HISTORY_MAX)
@@ -366,6 +373,9 @@
     [word('tous les ans|chaque ann[ée]e|every year|yearly|annually'), () => 'yearly'],
   ]
   const STREET = 'rue|avenue|av\\.|bd|boulevard|chemin|place|all[ée]e|impasse|route|quai|cours|street|st\\.|road|rd\\.|ave\\.?|lane|drive'
+  const PHONE = /\+?\d[\d .-]{7,16}\d/g // the same numbers as the "Call" button (app.js findLinks)
+  const isPhone = m => { const d = m.replace(/\D/g, '').length; return d >= 9 && d <= 15 && !/^\d{4}-\d{2}-\d{2}/.test(m) }
+  const PLACE_END = new RegExp('(?:(?:,?\\s+|,)(?:t[ée]l(?:[ée]phone)?|phone|portable|mobile)\\.?\\s*:?)?\\s*\uE000|,\\s*(?:m\\.|mme|mlle|mr|mrs|ms|madame|monsieur|dr|docteur)(?![' + L + '])', 'i')
   const ADDRESS = new RegExp('\\s\\d{1,4}(?:\\s?(?:bis|ter))?,?\\s+(?:' + STREET + ')(?![' + L + '])', 'i')
   const PART_OF_DAY = { matin: '09:00', morning: '09:00', midi: '12:00', 'apres-midi': '14:00', 'apres midi': '14:00', afternoon: '14:00', soir: '19:00', evening: '19:00', night: '21:00' }
   const FILLER = /^\s*(?:rappelle[- ]moi\s+(?:de\s+|d['’])?|remind me to\s+|n['’]oublie pas\s+(?:de\s+|d['’])?|penser [àa]\s+|don['’]t forget to\s+)/i
@@ -375,7 +385,9 @@
     const now = new Date(nowMs)
     const td = ymd(now)
     const mdy = !!(opts && opts.mdy)
-    let text = input
+    const phones = [] // set aside: a phone number is never read as a date, a time or an address
+    let text = input.replace(PHONE, m => (isPhone(m) ? '\uE000' + String.fromCharCode(0xE001 + phones.push(m) - 1) : m))
+    const back = s => s.replace(/\uE000([\uE001-\uF8FF])/g, (m, c) => phones[c.charCodeAt(0) - 0xE001])
     const cuts = [] // where date/repeat words were, to accept a bare "18h" right next to them
     // Removes the first match (when `ok` accepts its groups) and returns [phrase, group1, …].
     function take(re, ok) {
@@ -396,7 +408,10 @@
     } else if (take(word("(?:rappel(?:le[- ]moi|er)?|pr[ée]viens[- ]moi|remind(?:er|\\s+me)?)\\s+(?:la veille|the day before)"))) remind = [1440]
     const LOUD = word('(?:en\\s+)?(?:mode\\s+)?(?:alarme|r[ée]veil|alarm)')
     if (LOUD.test(text)) { loud = true; if (text.replace(LOUD, ' ').replace(/[\s\d:h!]+/gi, '').length > 1) take(LOUD) } // "Réveil 7h" keeps its name
-    if ((g = /(^|\s)(!{1,3})(?=\s|$)/.exec(text))) { important = true; text = text.slice(0, g.index) + g[1] + text.slice(g.index + g[0].length) }
+    let prio = 0 // "!", "!!", "!!!" or p3, p2, p1 (p1 is the highest)
+    if ((g = /(^|\s)(!{1,3})(?=\s|$)/.exec(text))) { prio = g[2].length; text = text.slice(0, g.index) + g[1] + text.slice(g.index + g[0].length) }
+    else if ((g = /(^|\s)[pP]([123])(?=\s|$)(?!\s+(?:à|a|au|to|-|–)\s+[pP]\d)/.exec(text))) { prio = 4 - +g[2]; text = text.slice(0, g.index) + g[1] + text.slice(g.index + g[0].length) } // not "pièces p1 à p12"
+    if (prio) important = true
     for (let i = 0; i < REPEATS.length && !repeat; i++) {
       if ((g = take(REPEATS[i][0]))) {
         repeat = REPEATS[i][1](g)
@@ -448,25 +463,26 @@
     }
     if (exact === null) {
       const hourOk = x => +x[1] < 24 && +(x[2] || 0) < 60
+      const MIN = '(\\d{2}(?![\\dh:])(?!(?:\\s?(?:bis|ter))?,?\\s+(?:' + STREET + ')(?![' + L + '])))?' // "8h 12 rue…": 12 is the street
       const ampm = (h, m, ap) => pad((+h % 12) + (/p/i.test(ap) ? 12 : 0)) + ':' + pad(+(m || 0))
       // A time range: "18h-1h", "de 9h à 12h30", "6pm-1am" (the end is used by events)
-      if ((g = take(word('(?:de\\s+|from\\s+)?(\\d{1,2})\\s*(?:h|:)\\s*(\\d{2})?\\s*(?:-|–|à|a|to|until|jusqu[\'’]à)\\s*(\\d{1,2})\\s*(?:h|:)\\s*(\\d{2})?'), x => hourOk(x) && +x[3] < 24 && +(x[4] || 0) < 60))) {
+      if ((g = take(word('(?:de\\s+|from\\s+)?(\\d{1,2})\\s*(?:h|:)\\s*' + MIN + '\\s*(?:-|–|à|a|to|until|jusqu[\'’]à)\\s*(\\d{1,2})\\s*(?:h|:)\\s*' + MIN), x => hourOk(x) && +x[3] < 24 && +(x[4] || 0) < 60))) {
         time = hhmm(g[1], g[2]); end = hhmm(g[3], g[4])
       } else if ((g = take(word('(?:from\\s+)?(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?\\s*(?:-|–|to|until)\\s*(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)'), x => +x[1] >= 1 && +x[1] <= 12 && +x[4] >= 1 && +x[4] <= 12))) {
         time = ampm(g[1], g[2], g[3] || g[6]); end = ampm(g[4], g[5], g[6])
       }
       // Several times at once: "à 8h, 12h et 19h", "matin, midi et soir" (one task each).
-      if (time) { /* range found */ } else if ((g = take(word('(?:[àa]\\s+|at\\s+)?(\\d{1,2})\\s*(?:h|:)\\s*(\\d{2})?((?:\\s*(?:,|et|and|&)\\s*\\d{1,2}\\s*(?:h|:)\\s*(?:\\d{2})?)+)'), hourOk))) {
+      if (time) { /* range found */ } else if ((g = take(word('(?:[àa]\\s+|at\\s+)?(\\d{1,2})\\s*(?:h|:)\\s*' + MIN + '((?:(?:\\s*(?:,|et|and|&)\\s*|\\s+)\\d{1,2}\\s*(?:h|:)(?:\\s*\\d{2}(?![\\dh:]))?)+)'), hourOk))) {
         times = [hhmm(g[1], g[2])]
-        ;(g[3].match(/\d{1,2}\s*(?:h|:)\s*(?:\d{2})?/g) || []).forEach(t => { const m = /(\d{1,2})\s*(?:h|:)\s*(\d{2})?/.exec(t); if (+m[1] < 24 && +(m[2] || 0) < 60) times.push(hhmm(m[1], m[2])) })
-      } else if (take(word('(?:le\\s+)?matin,?\\s+(?:le\\s+)?midi,?\\s+et\\s+(?:le\\s+)?soir|morning,?\\s+noon,?\\s+and\\s+(?:evening|night)'))) times = ['08:00', '12:00', '19:00']
-      else if (take(word('(?:le\\s+)?matin et (?:le\\s+)?soir|morning and (?:evening|night)'))) times = ['08:00', '19:00']
+        ;(g[3].match(/\d{1,2}\s*(?:h|:)(?:\s*\d{2}(?![\dh:]))?/g) || []).forEach(t => { const m = /(\d{1,2})\s*(?:h|:)\s*(\d{2})?/.exec(t); if (+m[1] < 24 && +(m[2] || 0) < 60) times.push(hhmm(m[1], m[2])) })
+      } else if (take(word('(?:le\\s+)?matin,?\\s+(?:le\\s+)?midi,?\\s+(?:et\\s+)?(?:le\\s+)?soir|morning,?\\s+noon,?\\s+(?:and\\s+)?(?:evening|night)'))) times = ['08:00', '12:00', '19:00']
+      else if (take(word('(?:le\\s+)?matin,?\\s+(?:et\\s+)?(?:le\\s+)?soir|morning,?\\s+(?:and\\s+)?(?:evening|night)'))) times = ['08:00', '19:00']
       else if (take(word('(?:le\\s+)?midi et (?:le\\s+)?soir|noon and (?:evening|night)'))) times = ['12:00', '19:00']
       if (times) time = times[0]
       else if ((g = take(word('(?:[àa]\\s+)?(midi|minuit|noon|midnight)')))) time = /midi|noon/i.test(g[1]) ? '12:00' : '00:00'
       else if ((g = take(word('(?:at\\s+|by\\s+|before\\s+)?(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)'), x => +x[1] >= 1 && +x[1] <= 12 && +(x[2] || 0) < 60))) {
         time = pad((+g[1] % 12) + (g[3].toLowerCase() === 'pm' ? 12 : 0)) + ':' + pad(+(g[2] || 0))
-      } else if ((g = take(word("(?:[àa]|at|vers|pour|@|avant|d['’]ici|before|by)\\s*(\\d{1,2})(?:\\s*(?:h|:)\\s*(\\d{2})?|\\s+heures?)"), hourOk))) {
+      } else if ((g = take(word("(?:[àa]|at|vers|pour|@|avant|d['’]ici|before|by)\\s*(\\d{1,2})(?:\\s*(?:h|:)\\s*" + MIN + "|\\s+heures?)"), hourOk))) {
         time = hhmm(g[1], g[2])
       } else if ((g = take(word('(?:at|by)\\s+(\\d{1,2})(?![\\d:hH])(?!\\s+(?:' + STREET + ')(?![' + L + ']))'), x => +x[1] >= 1 && +x[1] <= 12))) {
         // "at 7": 1 to 6 o'clock is the afternoon; without a date, the next 7 o'clock (7 PM once 7 AM is past)
@@ -474,7 +490,7 @@
         time = pad(pm ? h + 12 : h) + ':00'
       } else {
         // A bare "18h" counts next to a date or a repetition, or at the very end: "faire 2h de sport" stays a text.
-        const bare = word('(\\d{1,2})\\s*(?:h|:)\\s*(\\d{2})?')
+        const bare = word('(\\d{1,2})\\s*(?:h|:)\\s*' + MIN)
         g = take(bare, x => {
           const m = bare.exec(text); const s = m.index + m[1].length; const e = s + m[2].length
           return hourOk(x) && (!text.slice(e).trim() || cuts.some(c => Math.abs(c - e) <= 3 || Math.abs(c - s) <= 3))
@@ -503,17 +519,21 @@
       return d + (tm ? 'T' + tm : '')
     }
     const due = dueAt(time)
-    const extra = o => { if (remind) o.remind = remind; if (loud) o.loud = true; if (important) o.important = true; if (end && due && due.length > 10) o.end = end; return o }
-    if (!due && !repeat) return extra({ text: (loud || important || remind ? text.replace(/\s+/g, ' ').trim() : '') || input.trim(), due: null, repeat: null })
+    const extra = o => { if (remind) o.remind = remind; if (loud) o.loud = true; if (important) { o.important = true; o.prio = prio } if (end && due && due.length > 10) o.end = end; return o }
+    if (!due && !repeat) return extra({ text: (loud || important || remind ? back(text).replace(/\s+/g, ' ').trim() : '') || input.trim(), due: null, repeat: null })
     let rest = text.replace(FILLER, '').replace(/\s+/g, ' ').trim()
     for (let i = 0; i < 3; i++) rest = rest.replace(/[\s,;:.-]+$/, '').replace(/\s+(?:[àa]|at|le|on|pour|vers|de|du|for|by|et|and|à partir de)$/i, '').trim()
     rest = rest.replace(/^[\s,;:.-]+/, '')
     rest = rest.charAt(0).toUpperCase() + rest.slice(1)
     const addr = ADDRESS.exec(rest) // "Chantier 12 rue des Lilas": the address becomes the place
     let place = ''
-    if (addr && addr.index > 0) { place = rest.slice(addr.index).trim(); rest = rest.slice(0, addr.index).replace(/[\s,;:-]+$/, '').replace(/\s+(?:au|à|a|at|chez)$/i, '').trim() }
-    const out = extra({ text: rest || input.trim(), due: due, repeat: repeat })
-    if (place) out.place = place
+    if (addr && addr.index > 0) {
+      place = rest.slice(addr.index).trim(); rest = rest.slice(0, addr.index).replace(/[\s,;:-]+$/, '').replace(/\s+(?:au|à|a|at|chez)$/i, '').trim()
+      const who = PLACE_END.exec(place) // "3 avenue Foch, Mme Durand 06…": the name and the number stay in the title
+      if (who) { rest = (rest + ' ' + place.slice(who.index).replace(/^[\s,]+/, '')).trim(); place = place.slice(0, who.index).replace(/[\s,;:-]+$/, '') }
+    }
+    const out = extra({ text: back(rest) || input.trim(), due: due, repeat: repeat })
+    if (place) out.place = back(place)
     if (times && times.length > 1 && exact === null) out.dues = times.map(dueAt)
     return out
   }
@@ -647,7 +667,7 @@
   const api = {
     MORNING, SECTIONS, pad, ymd, hm, stamp, ms, toDate, parseDay, dayOf, timeOf, addDays, addMonths, between, weekday, today,
     repeatDays, nextDay, occursOn, nextOccurrence, eventSpan, eventStartOn, eventsOn, alarms, nextAlarm,
-    sectionOf, sortTasks, complete, postpone, histTime, streak, doneSince, level,
+    sectionOf, sortTasks, pri, complete, postpone, histTime, streak, doneSince, level,
     newId, normalize, empty, find, merge, purge, live, fold, matches, tags, parse, toIcs, fromIcs, rrule,
   }
   if (typeof module !== 'undefined' && module.exports) module.exports = api
