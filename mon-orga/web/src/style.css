@@ -370,3 +370,4 @@ p.ok > .ic { color: var(--ok) } p.warn > .ic { color: var(--late) }
 .menu-item { display: flex; align-items: center; gap: 12px; text-align: left; padding: 10px 12px; min-height: 48px; border-radius: 12px; font-size: 1rem }
 .menu-item .ic { color: var(--primary) }
 .menu-item:hover, .menu-item:focus-visible { background: var(--hover) }
+.nb { white-space: nowrap }

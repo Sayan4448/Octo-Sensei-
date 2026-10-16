@@ -447,7 +447,7 @@
       if (late) parts.push('<b class="late">' + esc(plural(late, 'lateOne', 'lateMany')) + '</b>')
       if (!set.calm && st.count) parts.push(esc(T('levelShort', st.level.level)))
       if (!set.calm && st.streak > 1) parts.push(esc(T('streakTiny', st.streak)))
-      sub = parts.map((p, i) => i ? p : esc(p)).join(' · ')
+      sub = parts.map((p, i) => i ? '<span class="nb">' + p + '</span>' : esc(p)).join(' · ') // "🔥 6 j" never splits
     } else if (ui.tab === 'notes') sub = esc(plural(S.live(doc.notes).length, 'notesOne', 'notesMany'))
     else if (ui.tab === 'agenda') sub = esc(cap(fmt({ weekday: 'long', day: 'numeric', month: 'long' }, new Date())))
     else sub = esc(T('plusSub'))
