@@ -18,7 +18,8 @@
   - « Ajoute du lait à la liste des courses » → « Lait » dans la liste **Courses**.
   
   Avant d'enregistrer, la barre de saisie dit où la phrase va aller (« Dans l'agenda », « En note », la liste). Ça marche aussi en anglais (« Remind me to… », « I have a meeting… », « Add milk to the shopping list »), sans Internet et sans compte : rien ne quitte ton téléphone.
-- 🌙 « Ce soir 8h » veut dire 20 h, et « mardi soir », « lundi matin » ou « samedi après-midi » donnent l'heure.
+- 🔁 **Répéter chaque jour à telle heure**, en le disant comme tu veux : « Médicament tous les jours à 8h », « Répète chaque jour à 8h prendre mes médicaments », « Chaque soir à 10h lire », « Vitamines tous les jours à 8h et à 20h », « Réveil tous les jours sauf le week-end à 7h », « tous les deux jours », « le 1er de chaque mois », « le dernier jour de chaque mois ». Ou tape « Médicament 8h » et touche la puce **🔁 Chaque jour** sous la barre de saisie. Le rappel sonne tous les jours, même si tu n'as pas coché la veille.
+- 🌙 « Ce soir 8h » veut dire 20 h, et « mardi soir », « lundi matin », « en fin de journée » ou « samedi après-midi » donnent l'heure. « Vendredi prochain » dit un vendredi, c'est la semaine d'après ; « le mercredi 28 », « 14h et demie », « avant la fin du mois » sont compris.
 
 ## Nouveautés de la version 5.1.1
 

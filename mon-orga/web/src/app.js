@@ -343,7 +343,7 @@
       dues.forEach(due => {
         const t = newTask({ text: named.text, repeat: ui.draft.repeat || p.repeat, important: ui.draft.important || !!p.important, prio: p.prio || 0, place: p.place || '',
           list: named.list || list || (ui.filter && ui.filter.indexOf('list:') === 0 ? ui.filter.slice(5) : '') })
-        setDue(t, due)
+        setDue(t, due || (t.repeat ? S.today(now()) : null)) // every day, from today
         if (p.remind && t.due) t.remind = p.remind.slice()
         if (p.loud || (t.important && set.loudImportant)) t.loud = true
         created.push(t)
@@ -380,7 +380,7 @@
       const due = pickDue(ui.draft.due, p.due)
       const time = S.timeOf(due)
       const named = withList(p.text)
-      const e = newEvent({ text: named.text, list: named.list, day: due ? S.dayOf(due) : ui.day, time: time, repeat: p.repeat, place: p.place || '', important: !!p.important, loud: !!p.loud })
+      const e = newEvent({ text: named.text, list: named.list, day: due ? S.dayOf(due) : ui.day, time: time, repeat: ui.draft.repeat || p.repeat, place: p.place || '', important: !!p.important, loud: !!p.loud })
       if (time) e.end = p.end || fromMinutes(minutes(time) + (+set.eventLength || 60)); else e.remind = set.remindAllDay.slice()
       if (p.remind) e.remind = p.remind.slice()
       add('events', e)
@@ -758,6 +758,7 @@
     }
     const pre = ['today'].concat(presets()).map(v => `<button type="button" class="chip ${ui.draft.due === dueFromPreset(v) && ui.draft.due ? 'on' : ''}" data-act="add-preset" data-v="${v}">${esc(presetLabel(v))}</button>`)
     pre.push(`<button type="button" class="chip ${ui.draft.due && ui.draft.due.length === 10 && ui.draft.due !== S.today(now()) ? 'on' : ''}" data-act="add-date">${icon('calendar')}${esc(ui.draft.due && ui.draft.due.length === 10 && ui.draft.due !== S.today(now()) ? fmtDay(ui.draft.due) : T('pickDate'))}</button>`)
+    pre.push(`<button type="button" class="chip ${ui.draft.repeat === 'daily' ? 'on' : ''}" data-act="add-daily" aria-pressed="${ui.draft.repeat === 'daily'}">${icon('repeat')}${esc(T('rep_daily'))}</button>`) // "Médicament 8h" + every day
     if (ui.tab === 'tasks') pre.push(`<button type="button" class="chip ${ui.draft.important ? 'on' : ''}" data-act="add-imp" aria-pressed="${ui.draft.important}">${icon('star')}${esc(T('important'))}</button>`)
     hint.innerHTML = chips.join('') + `<div class="chips scroll">${pre.join('')}</div>`
     hint.hidden = document.activeElement !== input && !v
@@ -1537,6 +1538,7 @@
     }),
     'add-preset': el => { const d = dueFromPreset(el.dataset.v); ui.draft.due = ui.draft.due === d ? null : d; renderHint(); $('#addInput').focus() },
     'add-imp': () => { ui.draft.important = !ui.draft.important; renderHint(); $('#addInput').focus() },
+    'add-daily': () => { ui.draft.repeat = ui.draft.repeat === 'daily' ? null : 'daily'; renderHint(); $('#addInput').focus() },
     'add-raw': () => { ui.draft.raw = true; renderHint(); $('#addInput').focus() },
     mic: () => { if (!H.voice) return; H.voice().then(text => { if (text) addSaid(text) }) },
     'note-full': () => { const i = $('#addInput'); const v = i ? i.value : ''; if (i) i.value = ''; newNoteFull(v) },

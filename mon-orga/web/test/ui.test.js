@@ -313,6 +313,14 @@ test('5.1.1: settings from 5.0 and 5.1, call and directions, priorities typed, a
       assert.ok(doc.notes.some(n => n.text === 'Le code du portail est 1234'))
       assert.ok(doc.tasks.some(x => x.text === 'Lait' && x.list === 'Courses'))
     })
+    await t.test('every day at a time, with the chip', async () => {
+      await page.fill('#addInput', 'Vitamines 8h')
+      await page.click('[data-act="add-daily"]')
+      assert.match(await page.textContent('#addHint'), /Chaque jour/)
+      await page.press('#addInput', 'Enter')
+      const doc = await page.evaluate(() => JSON.parse(localStorage.getItem('mon-orga-doc')))
+      assert.ok(doc.tasks.some(x => x.text === 'Vitamines' && x.repeat === 'daily' && x.due === '2026-10-17T08:00'), JSON.stringify(doc.tasks.map(x => [x.text, x.repeat, x.due])))
+    })
     await t.test('an archived list leaves the screen and comes back', async () => {
       await page.click('#nav [data-tab="plus"]')
       await page.click('[data-act="list-archive"][data-v="Projet X"]')
