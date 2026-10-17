@@ -295,6 +295,12 @@ test('the assistant: what 6 testers really said to it', () => {
     ['dinner with sophie tonight at 8', 'event', 'Dinner with sophie 2026-10-16T20:00'],
     ['lecture every monday at 10am', 'event', 'Lecture 2026-10-19T10:00 weekly:1'],
     ['i have a french class tomorrow at 2pm', 'event', 'French class 2026-10-17T14:00'],
+    // third try
+    ['um can you remind me to water the plants every morning at 8', 'task', 'Water the plants 2026-10-17T08:00 daily'], // in the morning, not 8 PM
+    ['rappelle moi de sortir les poubelles jaunes chaque jeudi soir', 'task', 'Sortir les poubelles jaunes 2026-10-22T19:00 weekly:4'],
+    ['i have yoga every tuesday at 6pm', 'event', 'Yoga 2026-10-20T18:00 weekly:2'],
+    ['les petits-enfants viennent tous les mercredis à 14h', 'event', 'Petits-enfants 2026-10-21T14:00 weekly:3'],
+    ["j'ai rendez-vous lundi prochain à 11h avec Julie pour la revue de sprint", 'event', 'Revue de sprint avec Julie 2026-10-19T11:00'],
   ]
   for (const [s, kind, text] of cases) assert.deepEqual(said(s).slice(0, 2), [kind, text], s)
   assert.deepEqual(said('ajoute du pain et des œufs à la liste des courses'), ['task', 'Pain | Œufs', 'Courses']) // one task each

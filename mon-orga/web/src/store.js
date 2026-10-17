@@ -365,7 +365,7 @@
     [word('(?:chaque|tous les)\\s+trimestres?|tous les trois mois|every quarter|quarterly'), () => 'months:3'],
     [word('(?:chaque|tous les)\\s+semestres?|tous les six mois|twice a year'), () => 'months:6'],
     [word('(?:le\\s+|les\\s+|on\\s+)?((?:' + DAYS_X + ')s?(?:' + SEP + '(?:' + DAYS_X + ')s?)+)\\s+(?:chaque semaine|toutes les semaines|every week)'), g => daysOf(g[1])],
-    [word('(?:chaque|tous les|toutes les|every)\\s+((?:' + DAYS_X + ')s?(?:' + SEP + '(?:' + DAYS_X + ')s?)*)'), g => daysOf(g[1])],
+    [word('(?:chaque|tous les|toutes les|every)\\s+((?:' + DAYS_X + ')s?(?:' + SEP + '(?:' + DAYS_X + ')s?)*)(?:\\s+(?:matin|midi|soir|apr[eè]s[- ]midi|morning|afternoon|evening|night)s?)?'), g => daysOf(g[1])],
     [word('on\\s+((?:' + EN_DAYS.join('|') + ')s(?:\\s*(?:,|and|&)\\s*(?:' + EN_DAYS.join('|') + ')s)*)'), g => daysOf(g[1])],
     [word('(?:tous les\\s+)?jours ouvr[ée]s|(?:tous les|chaque) jours? de la semaine|tous les jours sauf (?:le |les )?(?:week-?ends?|samedis? et dimanches?)|en semaine|du lundi au vendredi|on weekdays|every weekday|every day except (?:the )?weekends?|weekdays'), () => 'weekdays'],
     [word('tous les (?:matins|midis|soirs)|chaque (?:matin|midi|soir)|every (?:morning|noon|evening|night)'), () => 'daily'],
@@ -443,7 +443,7 @@
     const validDay = (d, mo) => d >= 1 && d <= 31 && mo >= 0 && mo <= 11
     const hhmm = (h, m) => pad(+h) + ':' + pad(+(m || 0))
     let repeat = null; let date = null; let time = null; let times = null; let exact = null; let weekly = null; let single = false; let g
-    let remind = null; let loud = false; let important = false; let end = null; let evening = false; let night = false; let later = false
+    let remind = null; let loud = false; let important = false; let end = null; let evening = false; let night = false; let later = false; let morning = false
     if ((g = take(word("(?:rappel(?:le[- ]moi|er)?|pr[ée]viens[- ]moi|remind(?:er|\\s+me)?)\\s+(\\d{1,3}|une?|an?|one|deux|two|trois|three)\\s*(minutes?|mins?|mn|h|heures?|hours?|jours?|days?|semaines?|weeks?|mois|months?)\\s+(?:avant|before)")))) {
       const n = num(g[1]); const u = g[2].toLowerCase()
       remind = [n * (/^mois|^month/.test(u) ? 43200 : /^m/.test(u) ? 1 : /^h/.test(u) ? 60 : /^(j|d)/.test(u) ? 1440 : 10080)]
@@ -463,7 +463,8 @@
         repeat = REPEATS[i][1](g)
         if (/soir|evening/i.test(g[0])) { time = '19:00'; evening = true }
         else if (/night/i.test(g[0])) time = '21:00'
-        else if (/matin|morning/i.test(g[0])) time = '08:00'
+        else if (/matin|morning/i.test(g[0])) { time = '08:00'; morning = true }
+        else if (/apr[eè]s[- ]midi|afternoon/i.test(g[0])) { time = '14:00'; evening = true }
         else if (/midi|noon/i.test(g[0])) time = '12:00'
       }
     }
@@ -534,7 +535,7 @@
         time = hhmm(g[1], g[2])
       } else if ((g = take(word('(?:at|by)\\s+(\\d{1,2})(?![\\d:hH])(?!\\s+(?:' + STREET + ')(?![' + L + ']))'), x => +x[1] >= 1 && +x[1] <= 12))) {
         // "at 7": 1 to 6 o'clock is the afternoon; without a date, the next 7 o'clock (7 PM once 7 AM is past)
-        const h = +g[1]; const pm = h < 12 && (h <= 6 || evening || (!date && !weekly && ms(td + 'T' + pad(h) + ':00') <= nowMs))
+        const h = +g[1]; const pm = !morning && h < 12 && (h <= 6 || evening || (!date && !weekly && ms(td + 'T' + pad(h) + ':00') <= nowMs)) // "every morning at 8" is 8 AM
         time = pad(pm ? h + 12 : h) + ':00'
       } else {
         // A bare "18h" counts next to a date or a repetition, or at the very end: "faire 2h de sport" stays a text.
@@ -572,7 +573,7 @@
     const extra = o => { if (remind) o.remind = remind; if (loud) o.loud = true; if (important) { o.important = true; o.prio = prio } if (end && due && due.length > 10) o.end = end; return o }
     if (!due && !repeat) {
       const t = (loud || important || remind ? back(text) : input).replace(/\s+/g, ' ').trim(); const a = unask(t)
-      return extra({ text: (a.asked ? cap(a.t.trim()) || askWord(a.asked) : t) || input.trim(), due: null, repeat: null })
+      return extra({ text: (a.asked ? cap(a.t.trim()) || askWord(a.asked) : remind ? cap(t) : t) || input.trim(), due: null, repeat: null })
     }
     const un = unask(text.replace(/\s+/g, ' ').trim()); let rest = un.t; const asked = un.asked
     for (let i = 0; i < 3; i++) rest = rest.replace(/[\s,;:.-]+$/, '').replace(/\s+(?:[àa]|at|le|on|the|pour|vers|de|du|for|by|et|and|à partir de|avant|before|d['’]ici)$/i, '').trim()
@@ -608,8 +609,10 @@
   const SAY_EVENT = /^(?:j['’]ai|on a|nous avons|i have|i['’]ve got|we have|prends|prenez|mets|mettez|ajoute[z]?|rajoute[z]?|cr[ée]e[z]?|programme[z]?|planifie[z]?|fixe[z]?|schedule|add|make|book)\s+(?:un\s+|une\s+|an?\s+)?(rendez[- ]vous|rdv|r[ée]union|[ée]v[ée]nement|entretien|appointment|meeting|event|interview)(?![A-Za-zÀ-ÿ])\s*/i
   const SAY_AGENDA = /^(?:mets|mettez|ajoute[z]?|rajoute[z]?|note[z]?|inscri(?:s|vez)|add|put)\s+(?:dans|[àa]|sur|au|to|in|on)\s+(?:l['’]|le\s+|mon\s+|ma\s+|the\s+|my\s+)?(?:agenda|calendrier|calendar)\s*:?\s*/i
   const SAY_RDV = /(?:^|\s)(?:(?:mon|un|le|my|an?)\s+)?(?:rdv|rendez[- ]vous)(?![A-Za-zÀ-ÿ])\s*/i // "Rendez-vous chez le docteur Martin le 23 à 9h", "vendredi 17h rendez-vous garagiste"
+  const SAY_VISIT = /^((?:(?:le|la|les|l['’]|mon|ma|mes|the|my)\s+)?)([^\s]+(?:\s+[^\s]+)?)\s+(?:vien(?:nen)?t|arrive(?:nt)?|passent|is coming|are coming|comes?|visits?)(?![A-Za-zÀ-ÿ])\s*/i
   const SAY_MEETING = new RegExp('^(?:(?:le|la|l[\'’]|mon|ma|un|une|the|my|an?)\\s+)?(?:' + APPOINTMENT_WORDS + ')(?![A-Za-zÀ-ÿ])', 'i') // "Dentiste jeudi 14h30", "Dinner with Sophie tonight at 8": with a time, an event
-  const SAY_HAVE = new RegExp('^(?:j[\'’]ai|on a|i have|i[\'’]ve got)\\s+(?:(?:un|une|le|la|l[\'’]|mon|ma|my|an?|the)\\s*)?(?=(?:[A-Za-zÀ-ÿ]+\\s+)?(?:' + APPOINTMENT_WORDS + ')(?![A-Za-zÀ-ÿ]))', 'i') // "J'ai kiné mardi 18h"
+  const ACTIVITIES = 'yoga|pilates|gym|sport|piano|guitare|danse|dance|natation|piscine|swimming|tennis|foot(?:ball)?|basket|judo|karat[ée]|boxe|muscu|zumba|th[ée][âa]tre|chorale|solf[èe]ge|catéchisme|scouts' // "J'ai yoga", not "Sport 7h" alone
+  const SAY_HAVE = new RegExp('^(?:j[\'’]ai|on a|i have|i[\'’]ve got)\\s+(?:(?:un|une|le|la|l[\'’]|mon|ma|my|an?|the)\\s*)?(?=(?:[A-Za-zÀ-ÿ]+\\s+)?(?:' + APPOINTMENT_WORDS + '|' + ACTIVITIES + ')(?![A-Za-zÀ-ÿ]))', 'i') // "J'ai kiné mardi 18h"
   const ARTICLE = /^(?:du|de la|de l['’]|des|de|d['’]|le|la|l['’]|les|un|une|some|the|an?)\s+|^(?:de l['’]|l['’]|d['’])/i
   function understand(input, nowMs, opts) {
     let s = str(input).replace(/\s+/g, ' ').trim().replace(/\.+$/, '') // speech may end with a dot ("!" is a priority)
@@ -633,7 +636,8 @@
       const noun = m[1] ? (/^rdv$/i.test(m[1]) ? 'Rendez-vous' : cap(m[1].toLowerCase())) : ''
       let rest = s.slice(m[0].length)
       const generic = /^rendez[- ]vous$/i.test(noun)
-      if (generic) rest = rest.replace(/(^|\s)(?:avec|with)\s+(?:(?:le|la|les|the)\s+|l['’])?/i, '$1').trim() // "Rendez-vous avec le client Atlas" is "Client Atlas"
+      const forWhat = /(^|\s)(avec|with)\s+(\S+(?:\s+\S+)?)\s+(?:pour|for)\s+(?:(?:la|le|les|the)\s+|l['’])?(.+)$/i // "avec Julie pour la revue" is "Revue avec Julie"
+      if (generic) rest = forWhat.test(rest) ? rest.replace(forWhat, (x, sp, w, who, what) => sp + what + ' ' + w.toLowerCase() + ' ' + who) : rest.replace(/(^|\s)(?:avec|with)\s+(?:(?:le|la|les|the)\s+|l['’])?/i, '$1').trim() // "Rendez-vous avec le client Atlas" is "Client Atlas"
       if (noun && !generic && /^(?:(?:avec|with|de|du|des|pour|for|of|about|sur)(?![A-Za-zÀ-ÿ])|d['’])/i.test(rest)) rest = noun + ' ' + rest // "Réunion d'équipe", "Rendez-vous avec Paul"
       else rest = rest.replace(/^(?:chez|au|aux|[àa] la|[àa] l['’]|at(?: the)?)\s*(?:le\s+|la\s+|l['’]|les\s+)?/i, '') // "chez le dentiste" is "Dentiste"
       return { kind: 'event', text: named(rest, noun || (/^(?:i|we|add|put|make|book|schedule)\b/i.test(s) ? 'Event' : 'Rendez-vous')) }
@@ -647,6 +651,7 @@
       return { kind: 'event', text: named(text, 'Rendez-vous') }
     }
     if (timed && SAY_MEETING.test(s)) return { kind: 'event', text: s }
+    if ((p.due || p.repeat) && (m = SAY_VISIT.exec(s)) && !/^(?:il|elle|on|je|j['’]|tu|nous|vous|ils|elles|he|she|it|they|we|you|i)$/i.test(m[2])) return { kind: 'event', text: cap(m[2]) + ' ' + s.slice(m[0].length) } // "Petits-enfants mercredi 14h"
     let plain = str(input).replace(/\s+/g, ' ').trim().replace(/\.+$/, '') // nothing asked: what was said, hesitations aside ("Bon anniversaire" keeps its "Bon")
     for (let m0; (m0 = UM.exec(plain)) && m0[0];) plain = cap(plain.slice(m0[0].length))
     return { kind: null, text: plain || s }
