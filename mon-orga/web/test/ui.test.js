@@ -265,12 +265,12 @@ test('5.1.1: settings from 5.0 and 5.1, call and directions, priorities typed, a
     await page.goto(url); await page.waitForSelector('#addInput')
     await t.test('coming from 5.0 through 5.1: the new defaults, said once, planned events too if asked', async () => {
       const text = await page.textContent('.dlg')
-      assert.match(text, /5\.1\.1[\s\S]*Nouveaux réglages par défaut/)
+      assert.match(text, /5\.2[\s\S]*Nouveaux réglages par défaut[\s\S]*comme à un assistant/) // 5.1.1, then 5.2
       assert.doesNotMatch(text, /tous les 3 mois/) // the 5.1 list was already seen
       assert.ok(await page.$('.dlg .menu-item:has-text("Garder mes anciens réglages de rappel")')) // they may have been chosen on purpose
       await page.click('.dlg .menu-item:has-text("Appliquer aussi au rendez-vous déjà prévu")')
       const s = await page.evaluate(() => JSON.parse(localStorage.getItem('mon-orga-settings')))
-      assert.deepEqual([s.remindEvent, s.nag, s.summary, s.news, s.before511], [[60, 1440], 10, '08:00', 52, null])
+      assert.deepEqual([s.remindEvent, s.nag, s.summary, s.news, s.before511], [[60, 1440], 10, '08:00', 53, null])
       const remind = id => page.evaluate(id => JSON.parse(localStorage.getItem('mon-orga-doc')).events.find(e => e.id === id).remind, id)
       assert.deepEqual([await remind('o'), await remind('d')], [[60, 1440], [60]]) // only the old default changes
     })
@@ -297,6 +297,29 @@ test('5.1.1: settings from 5.0 and 5.1, call and directions, priorities typed, a
       const row = '.row.task:has-text("Fuite")'
       assert.ok(await page.$(row + ' .call[data-href="tel:0612345678"]'))
       assert.match(await page.getAttribute(row + ' .route', 'data-href'), /query=3%20bis%20avenue%20Foch$/)
+    })
+    await t.test('the assistant: a typed sentence goes to the agenda, the notes or a list', async () => {
+      await page.fill('#addInput', "J'ai rendez-vous chez le dentiste jeudi à 14h30")
+      assert.match(await page.textContent('#addHint'), /Dans l’agenda/) // said before saving
+      await page.press('#addInput', 'Enter')
+      assert.match(await page.textContent('#snack'), /Rendez-vous ajouté/)
+      await page.fill('#addInput', 'Note que le code du portail est 1234')
+      await page.press('#addInput', 'Enter')
+      await page.fill('#addInput', 'Ajoute du lait à la liste des courses')
+      assert.match(await page.textContent('#addHint'), /Courses/)
+      await page.press('#addInput', 'Enter')
+      const doc = await page.evaluate(() => JSON.parse(localStorage.getItem('mon-orga-doc')))
+      assert.ok(doc.events.some(e => e.text === 'Dentiste' && e.day === '2026-10-22' && e.time === '14:30'))
+      assert.ok(doc.notes.some(n => n.text === 'Le code du portail est 1234'))
+      assert.ok(doc.tasks.some(x => x.text === 'Lait' && x.list === 'Courses'))
+    })
+    await t.test('every day at a time, with the chip', async () => {
+      await page.fill('#addInput', 'Vitamines 8h')
+      await page.click('[data-act="add-daily"]')
+      assert.match(await page.textContent('#addHint'), /Chaque jour/)
+      await page.press('#addInput', 'Enter')
+      const doc = await page.evaluate(() => JSON.parse(localStorage.getItem('mon-orga-doc')))
+      assert.ok(doc.tasks.some(x => x.text === 'Vitamines' && x.repeat === 'daily' && x.due === '2026-10-17T08:00'), JSON.stringify(doc.tasks.map(x => [x.text, x.repeat, x.due])))
     })
     await t.test('an archived list leaves the screen and comes back', async () => {
       await page.click('#nav [data-tab="plus"]')
@@ -332,7 +355,7 @@ test('5.1.1: settings from 5.0 and 5.1, call and directions, priorities typed, a
       await p2.goto(url)
       await p2.click('.dlg .menu-item:has-text("Garder mes anciens réglages de rappel")')
       const s = await p2.evaluate(() => JSON.parse(localStorage.getItem('mon-orga-settings')))
-      assert.deepEqual([s.remindEvent, s.nag, s.summary, s.news], [[15], 0, null, 52])
+      assert.deepEqual([s.remindEvent, s.nag, s.summary, s.news], [[15], 0, null, 53])
       await c2.close()
     })
     assert.deepEqual(errors, [])

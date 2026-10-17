@@ -46,6 +46,7 @@ Ce dépôt contient deux choses :
 ### ✨ Ce qu'elle fait
 
 - **Écris comme tu parles** : « Dentiste jeudi 14h30 rappel 1 h avant », « Médicament à 8h, 12h et 19h tous les jours », « Poubelles chaque mardi 19h », « Service 18h-1h samedi ». La date, l'heure, la répétition et le rappel sont compris.
+- **Parle-lui comme à un assistant** 🎙️ : « Rappelle-moi d'appeler maman demain à 18h », « J'ai rendez-vous chez le dentiste jeudi à 14h30 », « Note que le code du portail est 1234 », « Ajoute du lait à la liste des courses ». Chaque phrase va au bon endroit (tâche, agenda, note, liste), sans Internet.
 - **Rappels qui ne se ratent pas** : *Fait*, *+10 min* et *Demain* dans la notification, relances, **mode réveil** plein écran, résumé du matin, rappels des rendez-vous.
 - **Tâches** rangées par jour (*En retard, Aujourd'hui, Demain…*), étapes à cocher, listes, importantes, répétitions de toutes sortes (« le 1er lundi du mois », « tous les 3 mois »…). **Appui long** sur une tâche pour la reporter d'un geste.
 - **Notes** avec cases à cocher, liens et numéros cliquables, photos, épingles, #mots-clés.

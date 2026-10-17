@@ -226,8 +226,111 @@ test('priorities: "!" to "!!!" or p3 to p1, most important first within a day', 
   assert.deepEqual(S.sortTasks(doc.tasks, NOW).map(t => t.id), ['b', 'c', 'a'])
   assert.equal(S.normalize({ tasks: [{ prio: 3 }] }).tasks[0].prio, 0) // a priority goes with the star
   const range = S.parse('Communiquer pièces p1 à p12 avant le 20/10', NOW) // "p1" is a document here
-  assert.deepEqual([range.text, range.prio], ['Communiquer pièces p1 à p12 avant', undefined])
+  assert.deepEqual([range.text, range.prio], ['Communiquer pièces p1 à p12', undefined])
   assert.equal(S.parse('Appeler le client p1 à 14h', NOW).prio, 3)
+})
+
+test('the assistant: a spoken sentence goes where it belongs, with its name and its date', () => {
+  const said = s => { const a = S.understand(s, NOW, { lists: ['Courses'] }); const p = S.parse(a.text, NOW); return [a.kind, p.text, p.due, a.list || ''] }
+  assert.deepEqual(said("Rappelle-moi d'appeler maman demain à 18h"), ['task', 'Appeler maman', '2026-10-17T18:00', ''])
+  assert.deepEqual(said('Rappelle-moi dans 20 minutes de sortir le gâteau'), ['task', 'Sortir le gâteau', '2026-10-16T10:20', ''])
+  assert.deepEqual(said('Rappelle-moi demain à 8h'), ['task', 'Rappel', '2026-10-17T08:00', '']) // nothing else said
+  assert.deepEqual(said("N'oublie pas de sortir les poubelles mardi soir"), ['task', 'Sortir les poubelles', '2026-10-20T19:00', ''])
+  assert.deepEqual(said('Il faut que je paye le loyer le 5'), ['task', 'Payer le loyer', '2026-11-05', '']) // the verb as a to-do says it
+  assert.deepEqual(said("J'ai rendez-vous chez le dentiste jeudi à 14h30"), ['event', 'Dentiste', '2026-10-22T14:30', ''])
+  assert.deepEqual(said("J'ai une réunion d'équipe lundi 9h"), ['event', "Réunion d'équipe", '2026-10-19T09:00', ''])
+  assert.deepEqual(said("J'ai rendez-vous demain à 10h"), ['event', 'Rendez-vous', '2026-10-17T10:00', ''])
+  assert.deepEqual(said("J'ai kiné mardi 18h"), ['event', 'Kiné', '2026-10-20T18:00', ''])
+  assert.deepEqual(said("Mets dans l'agenda anniversaire de Léa le 12 novembre"), ['event', 'Anniversaire de Léa', '2026-11-12', ''])
+  assert.deepEqual(said('Rdv banque vendredi 11h'), ['event', 'Banque', '2026-10-16T11:00', ''])
+  assert.deepEqual(said('Note que le code du portail est 1234'), ['note', 'Le code du portail est 1234', null, ''])
+  assert.deepEqual(said('Ajoute du lait à la liste des courses'), ['task', 'Lait', null, 'Courses']) // the list that exists
+  assert.deepEqual(said('Rajoute des œufs aux courses'), ['task', 'Œufs', null, 'Courses'])
+  assert.deepEqual(said('I have a meeting with Paul on Thursday at 2:30pm'), ['event', 'Meeting with Paul', '2026-10-22T14:30', ''])
+  assert.deepEqual(said('Remind me to call mom tomorrow at 6pm'), ['task', 'Call mom', '2026-10-17T18:00', ''])
+  assert.deepEqual(said('Add milk to the shopping list'), ['task', 'Milk', null, 'Courses']) // the shopping list that exists
+  // What is not an order stays as typed, for the open tab to decide.
+  assert.deepEqual(said('Prendre rendez-vous chez le dentiste'), [null, 'Prendre rendez-vous chez le dentiste', null, ''])
+  assert.deepEqual(said('Note de frais à rendre lundi'), [null, 'Note de frais à rendre', '2026-10-19', ''])
+  assert.deepEqual(said('Mets les clés dans le tiroir'), [null, 'Mets les clés dans le tiroir', null, ''])
+  assert.deepEqual(said('Je dois 20 € à Paul'), [null, 'Je dois 20 € à Paul', null, '']) // owing, not a must
+  assert.equal(S.parse('Rappelle Paul demain', NOW).text, 'Rappelle Paul')
+  assert.deepEqual([S.parse('Cinéma ce soir 8h', NOW).due, S.parse('Dîner demain soir à 8h30', NOW).due, S.parse('Réunion lundi matin', NOW).due], ['2026-10-16T20:00', '2026-10-17T20:30', '2026-10-19T09:00'])
+})
+
+test('the assistant: what 6 testers really said to it', () => {
+  const said = s => { const a = S.understand(s, NOW, { lists: ['Courses', 'Maison'] }); return [a.kind, a.text.split('\n').map(t => { const p = S.parse(t, NOW); return p.text + (p.due ? ' ' + p.due : '') + (p.repeat ? ' ' + p.repeat : '') }).join(' | '), a.list || ''] }
+  const cases = [
+    ["euh rappelle-moi demain matin d'appeler le garagiste", 'task', 'Appeler le garagiste 2026-10-17T09:00'],
+    ['can you remind me to email my professor on monday morning', 'task', 'Email my professor 2026-10-19T09:00'],
+    ['um so like i need to do the laundry on sunday', 'task', 'Do the laundry 2026-10-18'],
+    ['il faut que je prenne mes gouttes tous les soirs à 20h', 'task', 'Prendre mes gouttes 2026-10-16T20:00 daily'],
+    ["faut que j'appelle le garage lundi matin", 'task', 'Appeler le garage 2026-10-19T09:00'],
+    ["il faudrait que j'achète un cadeau pour Léa le 2 novembre", 'task', 'Acheter un cadeau pour Léa 2026-11-02'],
+    ["n'oublie pas que je dois renouveler mon ordonnance avant la fin du mois", 'task', 'Renouveler mon ordonnance 2026-10-31'],
+    ['rappelle moi chaque lundi de sortir les poubelles le soir', 'task', 'Sortir les poubelles 2026-10-19T19:00 weekly:1'],
+    ['rappelle-moi tous les jours de la semaine à 8h45 de checker les mails', 'task', 'Checker les mails 2026-10-19T08:45 weekdays'],
+    ["rappelle-moi lundi en fin de journée d'envoyer la facture", 'task', 'Envoyer la facture 2026-10-19T18:00'],
+    ['rappelle moi tous les lundis de mettre le réveil à 6h', 'task', 'Mettre le réveil 2026-10-19T06:00 weekly:1'], // not the alarm mode
+    ['faut que je rende le dossier à Julie vendredi prochain avant midi', 'task', 'Rendre le dossier à Julie 2026-10-23T12:00'], // said on a Friday
+    ['i need to call the bank at half past two', 'task', 'Call the bank 2026-10-16T14:30'],
+    ["j'ai le dentiste le mercredi 28 à 16h", 'event', 'Dentiste 2026-10-28T16:00'],
+    ["j'ai le contrôle technique de la voiture le 23 octobre à 8h", 'event', 'Contrôle technique de la voiture 2026-10-23T08:00'],
+    ['rendez vous chez le garagiste pour la camionnette vendredi prochain à 17h', 'event', 'Garagiste pour la camionnette 2026-10-23T17:00'],
+    ['vendredi prochain à 17h rendez-vous garagiste', 'event', 'Garagiste 2026-10-23T17:00'],
+    ['note le numéro du fournisseur 06 12 34 56 78', 'note', 'Numéro du fournisseur 06 12 34 56 78'],
+    ['write down that my locker number is 42', 'note', 'My locker number is 42'],
+    ['peux-tu noter que le digicode est 4521B', 'note', 'Le digicode est 4521B'],
+    // second try
+    ["rappelle moi d'arroser les tomates tous les deux jours le soir", 'task', 'Arroser les tomates 2026-10-16T19:00 days:2'],
+    ['rappelle moi de prendre mon cachet matin midi et soir', 'task', 'Prendre mon cachet 2026-10-17T08:00 daily'], // pills: every day
+    ['rappelle-moi le dernier jour de chaque mois de clôturer les heures', 'task', 'Clôturer les heures 2026-10-31 monthly'],
+    ['rappelle-moi le 1er de chaque mois de valider les notes de frais', 'task', 'Valider les notes de frais 2026-11-01 monthly'],
+    ['can you remind me to top up my navigo card on the first of every month', 'task', 'Top up my navigo card 2026-11-01 monthly'],
+    ['bon rappelle moi ce soir de préparer mes affaires pour demain', 'task', 'Préparer mes affaires pour demain 2026-10-16T19:00'],
+    ['prise de sang lundi à 7h30 à jeun au laboratoire', 'event', 'Prise de sang à jeun au laboratoire 2026-10-19T07:30'],
+    ["j'ai un train à 14h12 dimanche rappelle moi une heure avant", 'event', 'Train 2026-10-18T14:12'],
+    ["j'ai rendez-vous avec le client de la salle de bain jeudi à 10h30", 'event', 'Client de la salle de bain 2026-10-22T10:30'],
+    ["j'ai rendez-vous mardi à 14h avec le client Atlas", 'event', 'Client Atlas 2026-10-20T14:00'],
+    ['dinner with sophie tonight at 8', 'event', 'Dinner with sophie 2026-10-16T20:00'],
+    ['lecture every monday at 10am', 'event', 'Lecture 2026-10-19T10:00 weekly:1'],
+    ['i have a french class tomorrow at 2pm', 'event', 'French class 2026-10-17T14:00'],
+    // third try
+    ['um can you remind me to water the plants every morning at 8', 'task', 'Water the plants 2026-10-17T08:00 daily'], // in the morning, not 8 PM
+    ['rappelle moi de sortir les poubelles jaunes chaque jeudi soir', 'task', 'Sortir les poubelles jaunes 2026-10-22T19:00 weekly:4'],
+    ['i have yoga every tuesday at 6pm', 'event', 'Yoga 2026-10-20T18:00 weekly:2'],
+    ['les petits-enfants viennent tous les mercredis à 14h', 'event', 'Petits-enfants 2026-10-21T14:00 weekly:3'],
+    ["j'ai rendez-vous lundi prochain à 11h avec Julie pour la revue de sprint", 'event', 'Revue de sprint avec Julie 2026-10-19T11:00'],
+  ]
+  for (const [s, kind, text] of cases) assert.deepEqual(said(s).slice(0, 2), [kind, text], s)
+  assert.deepEqual(said('ajoute du pain et des œufs à la liste des courses'), ['task', 'Pain | Œufs', 'Courses']) // one task each
+  assert.deepEqual(said('rajoute piles et ampoules dans courses'), ['task', 'Piles | Ampoules', 'Courses'])
+  assert.deepEqual(said("mets dans la liste maison réparer la chasse d'eau"), ['task', "Réparer la chasse d'eau", 'Maison'])
+  assert.deepEqual(said('mets dans maison envoyer le devis à martin lundi'), ['task', 'Envoyer le devis à martin 2026-10-19', 'Maison']) // a list that exists
+  assert.deepEqual(said('ajoute du lait du jambon et des yaourts à la liste des courses'), ['task', 'Lait | Jambon | Yaourts', 'Courses'])
+  assert.deepEqual(said('ajoute appeler le plombier et le chauffagiste à la liste maison'), ['task', 'Appeler le plombier et le chauffagiste', 'Maison']) // a to-do stays whole
+  // Not orders: they stay as said.
+  for (const s of ['Bon anniversaire à Léa', 'Envoyer un mot de merci à Paul', 'Annuler le rendez-vous chez le dentiste demain 9h', "J'ai un examen à préparer pour lundi", 'Bon de commande à envoyer lundi']) assert.deepEqual(S.understand(s, NOW, {}), { kind: null, text: s }, s)
+  assert.deepEqual(S.understand('euh acheter du pain', NOW, {}), { kind: null, text: 'Acheter du pain' })
+})
+
+test('every day at a time, said many ways', () => {
+  const p = s => { const r = S.parse(s, NOW); return [r.text, r.due, r.repeat].concat(r.dues ? [r.dues.length] : []) }
+  assert.deepEqual(p('Médicament tous les jours à 8h'), ['Médicament', '2026-10-17T08:00', 'daily'])
+  assert.deepEqual(p('Prendre mes médicaments chaque jour à 8h'), ['Prendre mes médicaments', '2026-10-17T08:00', 'daily'])
+  assert.deepEqual(p('Répète chaque jour à 8h prendre mes médicaments'), ['Prendre mes médicaments', '2026-10-17T08:00', 'daily'])
+  assert.deepEqual(p("Boire de l'eau à répéter tous les jours à 10h"), ["Boire de l'eau", '2026-10-17T10:00', 'daily']) // 10:00 is now: tomorrow
+  assert.deepEqual(p('Chaque matin à 7h faire du sport'), ['Faire du sport', '2026-10-17T07:00', 'daily'])
+  assert.deepEqual(p('Chaque soir à 10h lire'), ['Lire', '2026-10-16T22:00', 'daily']) // in the evening
+  assert.deepEqual(p('Arroser les plantes quotidiennement à 18h'), ['Arroser les plantes', '2026-10-16T18:00', 'daily'])
+  assert.deepEqual(p('Rappel quotidien à 8h médicaments'), ['Médicaments', '2026-10-17T08:00', 'daily'])
+  assert.deepEqual(p('Vitamines tous les jours à 8h et à 20h'), ['Vitamines', '2026-10-17T08:00', 'daily', 2]) // one task each
+  assert.deepEqual(p('Tous les jours sauf le week-end à 7h réveil'), ['Réveil', '2026-10-19T07:00', 'weekdays'])
+  assert.deepEqual(p('every day at 8am take my pills'), ['Take my pills', '2026-10-17T08:00', 'daily'])
+  assert.deepEqual(p('Loyer le 5 de chaque mois'), ['Loyer', '2026-11-05', 'monthly'])
+  // A daily reminder rings every day, ticked or not.
+  const doc = S.normalize({ tasks: [{ id: 'm', text: 'Médicament', due: '2026-10-15T08:00', repeat: 'daily', remind: [0] }] }) // not ticked yesterday
+  assert.deepEqual(S.alarms(doc, null, NOW, NOW + 2 * 86400000).map(a => S.stamp(new Date(a.at))), ['2026-10-17T08:00', '2026-10-18T08:00'])
 })
 
 test('a phone number is never a date, a time or part of the address', () => {

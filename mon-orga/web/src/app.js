@@ -18,7 +18,7 @@
     loudAll: false, dayStart: 0, eventLength: 60, recentTimes: [], morning: '09:00', evening: '19:00', quietFrom: '', quietTo: '',
     colors: 'app', phoneCalendar: false, backupLast: 0, backupAsked: 0, news: 0, googleBackup: true, archivedLists: [],
   }
-  const NEWS = 52 // bump with each "what's new" list
+  const NEWS = 53 // bump with each "what's new" list
   let doc = S.empty()
   let set = Object.assign({}, DEFAULTS)
   const ui = {
@@ -331,8 +331,8 @@
     const out = text.replace(/(^|\s)#([^\s#]{2,})/g, (m, sp, name) => { const l = !list && ls.find(x => S.fold(x) === S.fold(name)); if (!l) return m; list = l; return sp }).replace(/\s+/g, ' ').trim()
     return list && out ? { text: out, list: list } : { text: text, list: '' }
   }
-  const APPOINTMENT = /(^|[^A-Za-zÀ-ÿ])(rdv|rendez[- ]vous|dentiste|m[ée]decin|docteur|kin[ée]|ost[ée]o|coiffeur|r[ée]union|v[ée]t[ée]rinaire|chantier|intervention|d[ée]pannage|visite|consultation|cardio\w*|ophtalmo\w*|dermato\w*|gyn[ée]co\w*|p[ée]diatre|psy\w*|orthophoniste|radio|scanner|irm|[ée]chographie|prise de sang|analyses|labo|infirmi[eè]re|dr|meeting|appointment|dentist|doctor|vet)(?![A-Za-zÀ-ÿ])/i
-  function addTasks(raw) {
+  const APPOINTMENT = S.APPOINTMENT
+  function addTasks(raw, list) {
     const lines = raw.split(/\n+/).map(s => s.trim()).filter(Boolean)
     if (!lines.length) return
     const created = []
@@ -342,8 +342,8 @@
       const dues = ui.draft.due && ui.draft.due.length > 10 ? [ui.draft.due] : p.dues ? p.dues.map(d => pickDue(ui.draft.due, d)) : [pickDue(ui.draft.due, p.due)]
       dues.forEach(due => {
         const t = newTask({ text: named.text, repeat: ui.draft.repeat || p.repeat, important: ui.draft.important || !!p.important, prio: p.prio || 0, place: p.place || '',
-          list: named.list || (ui.filter && ui.filter.indexOf('list:') === 0 ? ui.filter.slice(5) : '') })
-        setDue(t, due)
+          list: named.list || list || (ui.filter && ui.filter.indexOf('list:') === 0 ? ui.filter.slice(5) : '') })
+        setDue(t, due || (t.repeat ? S.today(now()) : null)) // every day, from today
         if (p.remind && t.due) t.remind = p.remind.slice()
         if (p.loud || (t.important && set.loudImportant)) t.loud = true
         created.push(t)
@@ -380,7 +380,7 @@
       const due = pickDue(ui.draft.due, p.due)
       const time = S.timeOf(due)
       const named = withList(p.text)
-      const e = newEvent({ text: named.text, list: named.list, day: due ? S.dayOf(due) : ui.day, time: time, repeat: p.repeat, place: p.place || '', important: !!p.important, loud: !!p.loud })
+      const e = newEvent({ text: named.text, list: named.list, day: due ? S.dayOf(due) : ui.day, time: time, repeat: ui.draft.repeat || p.repeat, place: p.place || '', important: !!p.important, loud: !!p.loud })
       if (time) e.end = p.end || fromMinutes(minutes(time) + (+set.eventLength || 60)); else e.remind = set.remindAllDay.slice()
       if (p.remind) e.remind = p.remind.slice()
       add('events', e)
@@ -390,6 +390,17 @@
       }
     })
     ui.draft = { due: null, repeat: null, important: false, raw: false }
+  }
+  // The assistant: "Rappelle-moi…", "J'ai rendez-vous…", "Note que…" or "Ajoute du lait à la liste des courses" go where they belong.
+  const tabKind = () => (ui.tab === 'notes' ? 'note' : ui.tab === 'agenda' ? 'event' : 'task')
+  const understand = raw => (ui.draft.raw || /\n/.test(raw.trim()) ? { kind: null, text: raw } : S.understand(raw, now(), { mdy: /^en-US/i.test(navigator.language || ''), lists: lists(true) }))
+  function addSaid(raw) {
+    const a = understand(raw)
+    let kind = a.kind || tabKind()
+    if (kind === 'event' && ui.tab !== 'agenda') { const p = parse(a.text); if (!p.due && !p.repeat) { kind = 'task'; a.text = raw.trim() } } // no day yet: a to-do to plan it
+    if (kind === 'note') { const n = addNote(a.text); snack(T('noteAdded'), [{ label: T('open'), run: () => { switchTab('notes'); openSheet(n.id) } }]) }
+    else if (kind === 'event') addEvents(a.text)
+    else addTasks(a.text, a.list)
   }
   function addNote(text) {
     const n = newNote({ text: text.trim(), list: ui.filter && ui.filter.indexOf('list:') === 0 ? ui.filter.slice(5) : '' })
@@ -738,12 +749,16 @@
     const p = v && !ui.draft.raw ? parse(v.split('\n')[0]) : { due: null, repeat: null }
     const due = pickDue(ui.draft.due, p.due); const repeat = ui.draft.repeat || p.repeat
     const chips = []
+    const a = v && ui.tab !== 'notes' ? understand(v) : {}
+    const to = a.kind && a.kind !== tabKind() ? { event: ['calendar', 'toAgenda'], note: ['note', 'toNote'], task: ['tasks', 'toTask'] }[a.kind] : null
+    if (to || a.list) chips.push(`<span class="found">${to ? icon(to[0]) + esc(T(to[1])) : ''}${a.list ? `${to ? ' ' : ''}<i class="dot" style="--h:${hue(a.list.toLowerCase())}"></i>${esc(a.list)}` : ''}</span>`)
     if (due || repeat) {
       chips.push(`<span class="found">${due ? icon('clock') + esc(fmtDue({ due: due }, true)) : ''}${repeat ? ' ' + icon('repeat') + esc(repeatLabel(repeat)) : ''}${p.place ? ' ' + icon('place') + esc(p.place) : ''}
         ${p.due || p.repeat ? `<button type="button" class="icon-btn tiny" data-act="add-raw" aria-label="${esc(T('ignoreDate'))}" title="${esc(T('ignoreDate'))}">${icon('close')}</button>` : ''}</span>`)
     }
     const pre = ['today'].concat(presets()).map(v => `<button type="button" class="chip ${ui.draft.due === dueFromPreset(v) && ui.draft.due ? 'on' : ''}" data-act="add-preset" data-v="${v}">${esc(presetLabel(v))}</button>`)
     pre.push(`<button type="button" class="chip ${ui.draft.due && ui.draft.due.length === 10 && ui.draft.due !== S.today(now()) ? 'on' : ''}" data-act="add-date">${icon('calendar')}${esc(ui.draft.due && ui.draft.due.length === 10 && ui.draft.due !== S.today(now()) ? fmtDay(ui.draft.due) : T('pickDate'))}</button>`)
+    pre.push(`<button type="button" class="chip ${ui.draft.repeat === 'daily' ? 'on' : ''}" data-act="add-daily" aria-pressed="${ui.draft.repeat === 'daily'}">${icon('repeat')}${esc(T('rep_daily'))}</button>`) // "Médicament 8h" + every day
     if (ui.tab === 'tasks') pre.push(`<button type="button" class="chip ${ui.draft.important ? 'on' : ''}" data-act="add-imp" aria-pressed="${ui.draft.important}">${icon('star')}${esc(T('important'))}</button>`)
     hint.innerHTML = chips.join('') + `<div class="chips scroll">${pre.join('')}</div>`
     hint.hidden = document.activeElement !== input && !v
@@ -753,8 +768,7 @@
     const v = input.value
     if (!v.trim()) { input.focus(); return }
     if (ui.tab === 'notes') { const n = addNote(v); snack(T('noteAdded'), [{ label: T('open'), run: () => openSheet(n.id) }]) }
-    else if (ui.tab === 'agenda') addEvents(v)
-    else addTasks(v)
+    else addSaid(v)
     input.value = ''; autoGrow(input); renderHint()
     input.focus()
   }
@@ -1524,8 +1538,9 @@
     }),
     'add-preset': el => { const d = dueFromPreset(el.dataset.v); ui.draft.due = ui.draft.due === d ? null : d; renderHint(); $('#addInput').focus() },
     'add-imp': () => { ui.draft.important = !ui.draft.important; renderHint(); $('#addInput').focus() },
+    'add-daily': () => { ui.draft.repeat = ui.draft.repeat === 'daily' ? null : 'daily'; renderHint(); $('#addInput').focus() },
     'add-raw': () => { ui.draft.raw = true; renderHint(); $('#addInput').focus() },
-    mic: () => { if (!H.voice) return; H.voice().then(text => { if (!text) return; if (ui.tab === 'notes') { addNote(text); snack(T('noteAdded')) } else if (ui.tab === 'agenda') addEvents(text); else addTasks(text) }) },
+    mic: () => { if (!H.voice) return; H.voice().then(text => { if (text) addSaid(text) }) },
     'note-full': () => { const i = $('#addInput'); const v = i ? i.value : ''; if (i) i.value = ''; newNoteFull(v) },
     'event-full': () => {
       const i = $('#addInput'); const v = i ? i.value.trim() : ''; if (i) { i.value = ''; autoGrow(i) }
@@ -1895,13 +1910,13 @@
   function whatsNew(seen) {
     const before = set.before511 // the reminder settings the new defaults replaced (they may have been chosen on purpose)
     set.welcomed = true; set.news = NEWS; set.before511 = null; saveSettings()
-    const items = (seen < 0 ? T('whatsNew').split('|') : []).concat(seen < 51 ? T('whatsNew51').split('|') : [], T('whatsNew511').split('|'))
+    const items = (seen < 0 ? T('whatsNew').split('|') : []).concat(seen < 51 ? T('whatsNew51').split('|') : [], seen < 52 ? T('whatsNew511').split('|') : [], T('whatsNew52').split('|'))
     const old = S.live(doc.events).filter(e => String(e.remind) === '15' && (e.repeat || e.day >= S.today(now())))
     const opts = []
     if (old.length && String(set.remindEvent) === String(DEFAULTS.remindEvent)) opts.push({ label: plural(old.length, 'newRemindOne', 'newRemindMany'), value: 2, menu: true, icon: 'calendar' })
     if (before) opts.push({ label: T('keepOldReminders'), value: 3, menu: true, icon: 'undo' })
     opts.push({ label: T('letsGo'), value: 1 })
-    choose(T('whatsNewTitle511'), '', opts, `<ul class="tips">${items.map(t => `<li>${esc(t)}</li>`).join('')}</ul>`).then(v => {
+    choose(T('whatsNewTitle52'), '', opts, `<ul class="tips">${items.map(t => `<li>${esc(t)}</li>`).join('')}</ul>`).then(v => {
       if (v === 3) { Object.assign(set, before); saveSettings(); snack(T('oldRemindersKept')) }
       if (v !== 2) return
       const setAll = r => { old.forEach(o => { const e = S.find(doc, o.id); if (e) { e.remind = r.slice(); touch(e) } }); commit() } // by id: a sync may have replaced the objects

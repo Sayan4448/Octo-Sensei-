@@ -9,6 +9,18 @@
 **Android** : ouvre le fichier, autorise « Installer des applis inconnues » si on te le demande. Pour mettre à jour, installe **par-dessus** l'ancienne version, sans la désinstaller (sinon tes données partent avec).
 **Windows** : l'app n'est pas signée, Windows peut afficher « Windows a protégé votre ordinateur » : clique sur **Informations complémentaires**, puis **Exécuter quand même**.
 
+## Nouveautés de la version 5.2
+
+- 🎙️ **Parle-lui comme à un assistant**, au micro ou au clavier, et chaque phrase va au bon endroit :
+  - « Rappelle-moi d'appeler maman demain à 18h », « N'oublie pas de sortir les poubelles mardi soir », « Il faut que je paye le loyer le 5 » → une **tâche** avec son rappel ;
+  - « J'ai rendez-vous chez le dentiste jeudi à 14h30 », « Prends rendez-vous chez le coiffeur samedi 10h », « Mets dans l'agenda l'anniversaire de Léa le 12 novembre » → un **rendez-vous** dans l'agenda ;
+  - « Note que le code du portail est 1234 » → une **note** ;
+  - « Ajoute du lait à la liste des courses » → « Lait » dans la liste **Courses**.
+  
+  Avant d'enregistrer, la barre de saisie dit où la phrase va aller (« Dans l'agenda », « En note », la liste). Ça marche aussi en anglais (« Remind me to… », « I have a meeting… », « Add milk to the shopping list »), sans Internet et sans compte : rien ne quitte ton téléphone.
+- 🔁 **Répéter chaque jour à telle heure**, en le disant comme tu veux : « Médicament tous les jours à 8h », « Répète chaque jour à 8h prendre mes médicaments », « Chaque soir à 10h lire », « Vitamines tous les jours à 8h et à 20h », « Réveil tous les jours sauf le week-end à 7h », « tous les deux jours », « le 1er de chaque mois », « le dernier jour de chaque mois ». Ou tape « Médicament 8h » et touche la puce **🔁 Chaque jour** sous la barre de saisie. Le rappel sonne tous les jours, même si tu n'as pas coché la veille.
+- 🌙 « Ce soir 8h » veut dire 20 h, et « mardi soir », « lundi matin », « en fin de journée » ou « samedi après-midi » donnent l'heure. « Vendredi prochain » dit un vendredi, c'est la semaine d'après ; « le mercredi 28 », « 14h et demie », « avant la fin du mois » sont compris.
+
 ## Nouveautés de la version 5.1.1
 
 Une troisième vague de 50 testeurs a noté la 5.1 : 7,9/10 de moyenne, 40 sur 50 à 8 ou plus. Voici ce qui manquait aux 10 autres. Ils ont retesté cette version : **les 50 testeurs sont maintenant à 8/10 ou plus** (8,1 de moyenne).
