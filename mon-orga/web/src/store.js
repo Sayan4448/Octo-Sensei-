@@ -389,9 +389,12 @@
     ['le\\s+matin|in\\s+the\\s+morning', '09:00'],
   ]
   const DAY_PART = DAY_PARTS.map(x => x[0]).join('|')
+  const PART1 = "(?:(?:ce|cet|le|l['’]|au|this|in\\s+the)\\s*)?(?:apr[eè]s[- ]midi|matin|midi|soir|morning|noon|afternoon|evening|tonight|night)"
+  const PARTS_LIST = PART1 + '(?:\\s*(?:,|et|and|&|puis)?\\s*' + PART1 + ')+' // "ce matin et ce soir", "matin midi soir"
+  const PART_TIMES = { matin: '08:00', morning: '08:00', midi: '12:00', noon: '12:00', 'apres-midi': '14:00', afternoon: '14:00', soir: '19:00', evening: '19:00', tonight: '19:00', night: '21:00' }
   const PART_OF_DAY = { matin: '09:00', morning: '09:00', midi: '12:00', 'apres-midi': '14:00', 'apres midi': '14:00', afternoon: '14:00', soir: '19:00', evening: '19:00', night: '21:00' }
   // "Rappelle-moi de…", "Il faut que je…", "Remind me to…": asking words, not the task's name ("je dois" only before a verb: "je dois 20 €" stays)
-  const FILLER = /^\s*(?:rappelle[- ]moi(?:\s+(?:de\s+|d['’]|que\s+|qu['’])?|$)|rappel(?:\s*:\s*|\s+(?:de\s+|d['’])?)|me rappeler\s+(?:de\s+|d['’]|que\s+|qu['’])|n['’]oublie(?:z)? pas(?:\s+(?:de\s+|d['’]|que\s+|qu['’])?|$)|ne pas oublier\s+(?:de\s+|d['’])?|(?:il\s+)?(?:ne\s+)?faut pas que j['’]oublie\s*(?:de\s+|d['’])?|pense[rz]? [àa]\s+|fais[- ]moi penser [àa]\s+|souviens[- ]toi\s+(?:de\s+|d['’])|(?:il\s+)?faudrait\s+(?:que\s+(?:je\s+|j['’]))?|(?:il\s+)?faut\s+(?:que\s+(?:je\s+|j['’]))?|je dois\s+(?=\S+(?:er|ir|re|oir)\b)|j['’]ai [àa]\s+|(?:ajoute[rz]? une|nouvelle) t[âa]che\s*:?\s*|remind me(?:\s+to\s+|\s+|$)|don['’]t forget(?:\s+to\s+|\s+|$)|remember to\s+|i (?:need|have|must|should|got) to\s+|i(?:['’]ve| have)? got to\s+|i must\s+|i gotta\s+|gotta\s+|(?:add a|new) task\s*:?\s*|to-?do\s*:\s*)/i
+  const FILLER = /^\s*(?:rappelle[- ]moi(?:\s+(?:de\s+|d['’]|que\s+|qu['’])?|$)|rappel(?:\s*:\s*|\s+(?:de\s+|d['’])?)|me rappeler\s+(?:de\s+|d['’]|que\s+|qu['’])|n['’]oublie(?:z)? pas(?:\s+(?:de\s+|d['’]|que\s+|qu['’])?|$)|ne pas oublier\s+(?:de\s+|d['’])?|(?:il\s+)?(?:ne\s+)?faut pas que j['’]oublie\s*(?:de\s+|d['’])?|pense[rz]? [àa]\s+|fais[- ]moi penser [àa]\s+|souviens[- ]toi\s+(?:de\s+|d['’])|(?:il\s+)?faudrait\s+(?:que\s+(?:je\s+|j['’]))?|(?:il\s+)?faut\s+(?:que\s+(?:je\s+|j['’]))?|je dois\s+(?=\S+(?:er|ir|re|oir)\b)|j['’]ai [àa]\s+|(?:ajoute[rz]? une|nouvelle) t[âa]che\s*:?\s*|remind me(?:\s+to\s+|\s+|$)|don['’]t forget(?:\s+to\s+|\s+|$)|remember to\s+|je (?:vais|veux|voudrais)\s+(?=\S+(?:er|ir|re|oir)\b)|j['’]aimerais\s+(?=\S+(?:er|ir|re|oir)\b)|i (?:need|have|must|should|got) to\s+|i(?:['’]ve| have)? got to\s+|i must\s+|i gotta\s+|gotta\s+|(?:add a|new) task\s*:?\s*|to-?do\s*:\s*)/i
   // "Il faut que je prenne mes gouttes": the verb as a to-do says it ("Prendre mes gouttes")
   const E_VERBS = /^(?:r?ach|[ée]?lev|enlev|relev|soulev|[ae]?m+en|promen|ramen|pes|sem|gel|achev)/ // "achète" is "acheter", "règle" is "régler"
   const IRREGULAR = { prenne: 'prendre', mette: 'mettre', fasse: 'faire', aille: 'aller', voie: 'voir', sorte: 'sortir', parte: 'partir', dorme: 'dormir', serve: 'servir', écrive: 'écrire', inscrive: 'inscrire', lise: 'lire', dise: 'dire', vienne: 'venir', revienne: 'revenir', tienne: 'tenir', prévienne: 'prévenir', puisse: 'pouvoir', sache: 'savoir', boive: 'boire', reçoive: 'recevoir', conduise: 'conduire', suive: 'suivre', ouvre: 'ouvrir', offre: 'offrir', couvre: 'couvrir', coure: 'courir', soit: 'être', sois: 'être', aie: 'avoir', ait: 'avoir', rejoigne: 'rejoindre', éteigne: 'éteindre', peigne: 'peindre' }
@@ -406,10 +409,20 @@
     else if (!v && /e$/.test(l)) v = l + 'r' // passe → passer
     return v ? (w[0] === w[0].toUpperCase() ? cap(v) : v) : w
   }
+  const PRESENT = { sors: 'sortir', pars: 'partir', fais: 'faire', vais: 'aller', prends: 'prendre', mets: 'mettre', vois: 'voir', lis: 'lire', écris: 'écrire', dis: 'dire', bois: 'boire', viens: 'venir', reviens: 'revenir', tiens: 'tenir', préviens: 'prévenir', cours: 'courir', dors: 'dormir', sers: 'servir', conduis: 'conduire', crois: 'croire', reçois: 'recevoir' }
+  const NOT_A_VERB = /^(?:suis|ai|me|te|se|le|la|les|lui|leur|y|en|ne|nous|vous|dois|peux|sais|veux|m|t|s|l|n)$/i
+  function firstPerson(t) { // "Je sors les poubelles": a to-do says "Sortir les poubelles"
+    return t.replace(/^(?:je\s+|j['’])([A-Za-zÀ-ÿ]+)/i, (m, w) => {
+      const l = w.toLowerCase(); if (NOT_A_VERB.test(l)) return m
+      const v = PRESENT[l] || (/(?:end|ond|erd|ord)s$/.test(l) ? l.slice(0, -1) + 're' : /[^aeiouy]is$/.test(l) ? l.slice(0, -1) + 'r' : /e$/.test(l) ? infinitive(l) : '')
+      return v ? cap(v) : m
+    })
+  }
   function unask(t) { // takes the asking words off, however many: "N'oublie pas que je dois renouveler…"
     let asked = ''; let a
     while ((a = FILLER.exec(t)) && a[0]) { asked += a[0]; t = t.slice(a[0].length) }
     if (/que\s+(?:je\s+|j['’])$/i.test(asked)) t = t.replace(/^[A-Za-zÀ-ÿ]+/, infinitive)
+    else t = firstPerson(t)
     return { t: t, asked: asked }
   }
   const askWord = a => (/^\s*(?:remind|don|i\s|add|new|to)/i.test(a) ? 'Reminder' : 'Rappel') // "Rappelle-moi demain 8h": the name when nothing else is said
@@ -423,7 +436,8 @@
     const phones = [] // set aside: a phone number is never read as a date, a time or an address
     let text = input.replace(PHONE, m => (isPhone(m) ? '\uE000' + String.fromCharCode(0xE001 + phones.push(m) - 1) : m))
     const back = s => s.replace(/\uE000([\uE001-\uF8FF])/g, (m, c) => phones[c.charCodeAt(0) - 0xE001])
-    text = text.replace(/(\d{1,2})\s*h(?:eures?)?\s+et\s+(demie?|quart)(?![A-Za-zÀ-ÿ])/gi, (m, h, q) => h + 'h' + (/^q/i.test(q) ? '15' : '30')) // "14h et demie"
+    text = text.replace(/(^|\s)(?:se|sa|ça|ca)\s+(matin|soir|midi|apr[eè]s[- ]midi)(?![A-Za-zÀ-ÿ])/gi, (m, sp, w) => sp + (/^apr/i.test(w) ? 'cet ' : 'ce ') + w)
+      .replace(/(\d{1,2})\s*h(?:eures?)?\s+et\s+(demie?|quart)(?![A-Za-zÀ-ÿ])/gi, (m, h, q) => h + 'h' + (/^q/i.test(q) ? '15' : '30')) // "14h et demie"
       .replace(/(\d{1,2})\s*h(?:eures?)?\s+moins\s+(?:le\s+)?quart(?![A-Za-zÀ-ÿ])/gi, (m, h) => (+h + 23) % 24 + 'h45').replace(/midi\s+et\s+demie?/gi, '12h30')
       .replace(/(half|quarter)\s+past\s+(\d{1,2}|[a-z]+)|quarter\s+to\s+(\d{1,2}|[a-z]+)/gi, (m, k, a, b) => { // "half past two": 2:30, in the afternoon like "at 2"
         const n = +(a || b) || EN_NUMBERS.indexOf(String(a || b).toLowerCase()) + 1; if (!(n >= 1 && n <= 12)) return m
@@ -470,6 +484,11 @@
     }
     if (repeat) take(word("(?:(?:et|qui se|[àa])\\s+)?r[ée]p[éeè]t(?:e|er|ez|é|ée)(?:\\s+(?:ça|cela))?")) // "répète chaque jour à 8h": the words that ask for it
     if (repeat && repeat.indexOf('weekly:') === 0) weekly = repeatDays(repeat)
+    let partsDaily = false // "matin et soir" alone is every day (pills, teeth); "ce matin et ce soir" is today
+    if ((g = take(word(PARTS_LIST)))) {
+      times = []; (g[0].match(/apr[eè]s[- ]midi|matin|midi|soir|morning|noon|afternoon|evening|tonight|night/gi) || []).forEach(w => { const t = PART_TIMES[fold(w).replace(' ', '-')]; if (times.indexOf(t) < 0) times.push(t) })
+      if (/(?:^|\s)(?:ce|cet|this)\s|tonight/i.test(g[0])) date = td; else partsDaily = true
+    }
     if (take(word('(?:dans|in)\\s+(?:une\\s+)?(?:demi[- ]heure|half an hour)'))) exact = nowMs + 30 * 60000
     else if ((g = take(word('(?:dans|in)\\s+(\\d{1,2}|une?|an?|one|deux|two|trois|three)\\s*(?:h|heures?|hours?)\\s*(?:et\\s+|and\\s+(?:a\\s+)?)?(\\d{1,2}|demie?|quart|half)(?:\\s*(?:min|mn|minutes?))?'), x => !/^\d/.test(x[2]) || +x[2] < 60))) {
       exact = nowMs + (num(g[1]) * 60 + (/demi|half/i.test(g[2]) ? 30 : /quart/i.test(g[2]) ? 15 : +g[2])) * 60000
@@ -489,6 +508,7 @@
       else if (take(word('ce soir|tonight|this evening'))) { date = td; time = '19:00'; evening = true }
       else if (take(word('cet apr[eè]s[- ]midi|this afternoon'))) { date = td; time = '14:00' }
       else if (take(word('ce matin|this morning'))) { date = td; time = '09:00' }
+      else if (take(word('ce midi'))) { date = td; time = '12:00' }
       else if (take(word("aujourd['’]hui|today"))) date = td
       else if (take(word('la semaine prochaine|next week'))) date = addDays(td, 8 - weekday(td))
       else if (take(word('ce week-?end|this weekend|le week-?end prochain|next weekend'))) date = addDays(td, (6 - weekday(td) + 7) % 7)
@@ -524,9 +544,8 @@
       if (time) { /* range found */ } else if ((g = take(word('(?:[àa]\\s+|at\\s+)?(\\d{1,2})\\s*(?:h|:)\\s*' + MIN + '((?:(?:\\s*(?:,|et|and|&)\\s*|\\s+)(?:[àa]\\s+|at\\s+)?\\d{1,2}\\s*(?:h|:)(?:\\s*\\d{2}(?![\\dh:]))?)+)'), hourOk))) {
         times = [hhmm(g[1], g[2])]
         ;(g[3].match(/\d{1,2}\s*(?:h|:)(?:\s*\d{2}(?![\dh:]))?/g) || []).forEach(t => { const m = /(\d{1,2})\s*(?:h|:)\s*(\d{2})?/.exec(t); if (+m[1] < 24 && +(m[2] || 0) < 60) times.push(hhmm(m[1], m[2])) })
-      } else if (take(word('(?:le\\s+)?matin,?\\s+(?:le\\s+)?midi,?\\s+(?:et\\s+)?(?:le\\s+)?soir|morning,?\\s+noon,?\\s+(?:and\\s+)?(?:evening|night)'))) { times = ['08:00', '12:00', '19:00']; if (!repeat && !date && !weekly) repeat = 'daily' }
-      else if (take(word('(?:le\\s+)?matin,?\\s+(?:et\\s+)?(?:le\\s+)?soir|morning,?\\s+(?:and\\s+)?(?:evening|night)'))) times = ['08:00', '19:00']
-      else if (take(word('(?:le\\s+)?midi et (?:le\\s+)?soir|noon and (?:evening|night)'))) times = ['12:00', '19:00']
+      }
+      if (partsDaily && !repeat && !date && !weekly) repeat = 'daily'
       if (times) time = times[0]
       else if ((g = take(word('(?:[àa]\\s+)?(midi|minuit|noon|midnight)')))) time = /midi|noon/i.test(g[1]) ? '12:00' : '00:00'
       else if ((g = take(word('(?:at\\s+|by\\s+|before\\s+)?(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)'), x => +x[1] >= 1 && +x[1] <= 12 && +(x[2] || 0) < 60))) {
@@ -573,7 +592,7 @@
     const extra = o => { if (remind) o.remind = remind; if (loud) o.loud = true; if (important) { o.important = true; o.prio = prio } if (end && due && due.length > 10) o.end = end; return o }
     if (!due && !repeat) {
       const t = (loud || important || remind ? back(text) : input).replace(/\s+/g, ' ').trim(); const a = unask(t)
-      return extra({ text: (a.asked ? cap(a.t.trim()) || askWord(a.asked) : remind ? cap(t) : t) || input.trim(), due: null, repeat: null })
+      return extra({ text: (a.asked ? cap(a.t.trim()) || askWord(a.asked) : a.t !== t ? a.t : remind ? cap(t) : t) || input.trim(), due: null, repeat: null })
     }
     const un = unask(text.replace(/\s+/g, ' ').trim()); let rest = un.t; const asked = un.asked
     for (let i = 0; i < 3; i++) rest = rest.replace(/[\s,;:.-]+$/, '').replace(/\s+(?:[àa]|at|le|on|the|pour|vers|de|du|for|by|et|and|à partir de|avant|before|d['’]ici)$/i, '').trim()

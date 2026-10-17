@@ -9,6 +9,11 @@
 **Android** : ouvre le fichier, autorise « Installer des applis inconnues » si on te le demande. Pour mettre à jour, installe **par-dessus** l'ancienne version, sans la désinstaller (sinon tes données partent avec).
 **Windows** : l'app n'est pas signée, Windows peut afficher « Windows a protégé votre ordinateur » : clique sur **Informations complémentaires**, puis **Exécuter quand même**.
 
+## Nouveautés de la version 5.2.1
+
+- 🗑️ « Je sors les poubelles **ce matin et ce soir** » crée bien **deux rappels** (8 h et 19 h) au lieu d'un seul. « Matin et soir » tout seul veut dire tous les jours (« Brosser les dents matin et soir »), et « matin midi soir » marche aussi sans « et ».
+- 🗣️ « Je sors les poubelles », « je range ma chambre », « je vais chercher Léo » donnent « Sortir les poubelles », « Ranger ma chambre », « Chercher Léo ».
+
 ## Nouveautés de la version 5.2
 
 - 🎙️ **Parle-lui comme à un assistant**, au micro ou au clavier, et chaque phrase va au bon endroit :

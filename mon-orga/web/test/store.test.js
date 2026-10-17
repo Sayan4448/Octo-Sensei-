@@ -333,6 +333,18 @@ test('every day at a time, said many ways', () => {
   assert.deepEqual(S.alarms(doc, null, NOW, NOW + 2 * 86400000).map(a => S.stamp(new Date(a.at))), ['2026-10-17T08:00', '2026-10-18T08:00'])
 })
 
+test('"ce matin et ce soir": one reminder at each, and "je sors" is "Sortir" (Sayan, 5.2.1)', () => {
+  const p = s => { const r = S.parse(S.understand(s, NOW, {}).text, NOW); return [r.text, r.repeat, r.dues || [r.due]] }
+  assert.deepEqual(p('je sors les poubelles ce matin et ce soir'), ['Sortir les poubelles', null, ['2026-10-16T08:00', '2026-10-16T19:00']])
+  assert.deepEqual(p('je sors les poubelles sa matin et se soir'), ['Sortir les poubelles', null, ['2026-10-16T08:00', '2026-10-16T19:00']]) // "ce" heard or typed as "sa", "se"
+  assert.deepEqual(p('Brosser les dents matin et soir'), ['Brosser les dents', 'daily', ['2026-10-17T08:00', '2026-10-16T19:00']]) // alone: every day
+  assert.deepEqual(p('Médicament matin midi soir'), ['Médicament', 'daily', ['2026-10-17T08:00', '2026-10-16T12:00', '2026-10-16T19:00']])
+  assert.deepEqual(p('Demain matin et soir arroser'), ['Arroser', null, ['2026-10-17T08:00', '2026-10-17T19:00']])
+  assert.deepEqual(p('this morning and tonight take my pills'), ['Take my pills', null, ['2026-10-16T08:00', '2026-10-16T19:00']])
+  assert.deepEqual([p('je range ma chambre ce soir')[0], p('je vais chercher Léo à 16h30')[0], p('je fais les courses demain')[0], p('je vais au marché samedi matin')[0]], ['Ranger ma chambre', 'Chercher Léo', 'Faire les courses', 'Aller au marché'])
+  assert.deepEqual([p('je me lève à 6h demain')[0], p('Je dois 20 € à Paul')[0], p('Journal du matin et du soir')[0]], ['Je me lève', 'Je dois 20 € à Paul', 'Journal du matin et du soir']) // left as said
+})
+
 test('a phone number is never a date, a time or part of the address', () => {
   const p = S.parse('Visite jeudi 10h Mme Durand 06.12.34.56.78', NOW)
   assert.deepEqual([p.text, p.due], ['Visite Mme Durand 06.12.34.56.78', '2026-10-22T10:00'])
