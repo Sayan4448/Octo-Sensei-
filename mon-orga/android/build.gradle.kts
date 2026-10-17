@@ -11,8 +11,8 @@ android {
         applicationId = "com.sayan.todo"
         minSdk = 26 // java.time without desugaring
         targetSdk = 36
-        versionCode = 7
-        versionName = "5.1.1"
+        versionCode = 8
+        versionName = "5.2.0"
     }
 
     // Committed key: every build, from any machine, can update the installed app without uninstalling it (which wipes the data).

@@ -32,7 +32,7 @@ class MainActivityTest {
         val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
         assertEquals(MainActivity.START, shadowOf(activity.web).lastLoadedUrl)
         val call = bridgeOf(activity)
-        assertEquals("5.1.1", JSONObject(call("info", arrayOf()) as String).getString("version"))
+        assertEquals("5.2.0", JSONObject(call("info", arrayOf()) as String).getString("version"))
         val merged = JSONObject(call("save", arrayOf("""{"tasks":[{"id":"a","text":"Pain","updatedAt":5}]}""")) as String)
         assertEquals("Pain", items(merged, "tasks").single().getString("text"))
         assertEquals("Pain", items(JSONObject(call("load", arrayOf()) as String), "tasks").single().getString("text"))
