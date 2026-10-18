@@ -59,6 +59,7 @@ test('the PC app: the assistant tab talks to a local AI and files what it says',
   const data = fs.mkdtempSync(path.join(os.tmpdir(), 'mon-orga-'))
   const ai = await fakeAi(body => {
     const said = body.messages[body.messages.length - 1].content
+    if (/plutôt/i.test(said)) return '{"reply": "Hop, déplacé à mercredi 9h.", "add": [{"type": "event", "title": "Dentiste", "when": "mercredi 9h", "date": "", "time": ""}]}'
     if (/dentiste/i.test(said)) return '```json\n{"reply": "C’est noté, bon courage chez le dentiste !", "add": [{"type": "event", "title": "Dentiste", "when": "mardi 14h", "date": "2026-10-21", "time": "14:00", "place": "", "repeat": ""}]}\n```'
     return '{"reply": "Tu as un dentiste mardi.", "add": []}'
   })
@@ -80,7 +81,7 @@ test('the PC app: the assistant tab talks to a local AI and files what it says',
     await page.fill('#addInput', 'J’ai dentiste mardi à 14h')
     await page.press('#addInput', 'Enter')
     await page.waitForSelector('.ai-item:has-text("Dentiste")')
-    assert.match(await page.textContent('.msg.bot >> nth=-1'), /bon courage[\s\S]*Agenda/)
+    assert.match(await page.textContent('.msg.bot >> nth=-1'), /bon courage[\s\S]*(Agenda|Calendar)/) // Windows ignores LANG: the interface may be in English
     const call = ai.calls[1]
     assert.equal(call.body.model, 'llama3.2:latest')
     assert.match(call.body.messages[0].content, /Always answer with exactly one JSON object/)
@@ -95,8 +96,14 @@ test('the PC app: the assistant tab talks to a local AI and files what it says',
     await page.fill('#addInput', 'Et mardi ?'); await page.press('#addInput', 'Enter')
     await page.waitForSelector('.msg.bot:has-text("Tu as un dentiste mardi.")')
     assert.deepEqual(ai.calls[2].body.messages.slice(1).map(m => m.role), ['user', 'assistant', 'user'])
+    // a correction moves the appointment this chat made, it does not make a second one
+    await page.fill('#addInput', 'Non, plutôt mercredi à 9h'); await page.press('#addInput', 'Enter')
+    await page.waitForSelector('.msg.bot:has-text("Hop, déplacé")')
+    const dentists = saved().events.filter(e => e.text === 'Dentiste' && !e.deleted)
+    assert.equal(dentists.length, 1)
+    assert.deepEqual([require('../../web/src/store.js').weekday(dentists[0].day), dentists[0].time, dentists[0].end], [3, '09:00', '10:00'])
     // undo from the chat
-    await page.click('.ai-item:has-text("Dentiste") [data-act="ai-undo"]')
+    await page.click('.msg.bot:has-text("Hop") .ai-item [data-act="ai-undo"]')
     await page.waitForSelector('.ai-item.gone')
     assert.ok(saved().events.find(e => e.text === 'Dentiste').deleted)
   } finally {

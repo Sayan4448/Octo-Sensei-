@@ -471,9 +471,11 @@
     render(); renderAddBar()
     snack(T('aiConnected', model))
   }
-  // An item the model asked for, made like a typed one. The same item twice (a model repeating itself) is not added again.
-  function aiAdd(x, said) {
+  // An item the model asked for, made like a typed one. The same item twice (a model repeating itself) is not added again,
+  // and one this chat made earlier is moved, not made twice ("Coiffeur vendredi", then "non, à 10h30").
+  function aiAdd(x, said, earlier) {
     const same = it => S.fold(it.text) === S.fold(x.text)
+    const fix = x.kind !== 'note' && x.day && earlier.map(r => S.find(doc, r.id)).find(it => it && !it.deleted && !it.done && kindOf(it.id) === x.kind + 's' && same(it))
     const list = x.list && S.fold(said).indexOf(S.fold(x.list)) >= 0 ? lists(true).find(l => S.fold(l) === S.fold(x.list)) || cap(x.list) : '' // only a list the user named
     if (x.kind === 'note') {
       const old = S.live(doc.notes).find(same); if (old) return { id: old.id, old: true }
@@ -481,12 +483,15 @@
     }
     if (x.kind === 'event') {
       const old = S.live(doc.events).find(e => same(e) && e.day === x.day && e.time === x.time); if (old) return { id: old.id, old: true }
-      const e = newEvent({ text: x.text, day: x.day, time: x.time, repeat: x.repeat, place: x.place, list: list })
-      if (x.time) e.end = x.end || fromMinutes(minutes(x.time) + (+set.eventLength || 60)); else e.remind = set.remindAllDay.slice()
-      add('events', e); return { id: e.id }
+      const e = fix || newEvent({ text: x.text, list: list })
+      Object.assign(e, { day: x.day, time: x.time, end: x.time ? x.end || fromMinutes(minutes(x.time) + (+set.eventLength || 60)) : null, repeat: x.repeat || (fix ? e.repeat : null), place: x.place || e.place })
+      if (!x.time && !fix) e.remind = set.remindAllDay.slice()
+      if (fix) put(e); else add('events', e)
+      return { id: e.id }
     }
     const due = x.day ? x.day + (x.time ? 'T' + x.time : '') : null
     const old = S.live(doc.tasks).find(t => !t.done && same(t) && t.due === due); if (old) return { id: old.id, old: true }
+    if (fix) { setDue(fix, due); if (x.repeat) fix.repeat = x.repeat; put(fix); return { id: fix.id } }
     const t = newTask({ text: x.text, repeat: x.repeat, place: x.place, list: list })
     setDue(t, due || (t.repeat ? S.today(now()) : null))
     add('tasks', t); return { id: t.id }
@@ -504,7 +509,8 @@
       const m = (r.json.choices && r.json.choices[0] && r.json.choices[0].message) || {}
       const content = Array.isArray(m.content) ? m.content.map(c => c.text || '').join('') : String(m.content || '')
       const a = S.aiReply(content, now(), { mdy: /^en-US/i.test(navigator.language || '') })
-      const items = a.add.map(x => aiAdd(x, text))
+      const earlier = [].concat.apply([], ui.chat.map(c => c.items || [])).filter(c => !c.old)
+      const items = a.add.map(x => aiAdd(x, text, earlier)).filter((c, i, all) => all.findIndex(o => o.id === c.id) === i)
       const say = a.reply || T(items.length ? 'aiAdded' : 'aiEmpty')
       ui.chat.push({ role: 'bot', text: say, raw: content || say, items: items })
       const live = $('#aiLive'); if (live) live.textContent = say
