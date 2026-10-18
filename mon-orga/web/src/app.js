@@ -17,8 +17,9 @@
     tray: true, login: false, focus: null, welcomed: false,
     loudAll: false, dayStart: 0, eventLength: 60, recentTimes: [], morning: '09:00', evening: '19:00', quietFrom: '', quietTo: '',
     colors: 'app', phoneCalendar: false, backupLast: 0, backupAsked: 0, news: 0, googleBackup: true, archivedLists: [],
+    ai: null, // the assistant's service: { provider, url, model, key: saved or not }; the key itself stays with the host
   }
-  const NEWS = 53 // bump with each "what's new" list
+  const NEWS = 54 // bump with each "what's new" list
   let doc = S.empty()
   let set = Object.assign({}, DEFAULTS)
   const ui = {
@@ -26,6 +27,7 @@
     day: S.today(now()), month: S.today(now()).slice(0, 8) + '01', agendaMode: 'month',
     sheet: null, noteRead: false, draft: { due: null, repeat: null, important: false, raw: false },
     filters: {}, upcoming: 30,
+    chat: [], aiBusy: false, aiSetup: false, aiForm: null, aiModels: [],
   }
 
   // ---------- words ----------
@@ -96,6 +98,7 @@
   // ---------- icons (Material Symbols, Apache 2.0) ----------
   const ICONS = {
     add: 'M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z',
+    bot: 'M20 9V7c0-1.1-.9-2-2-2h-3c0-1.66-1.34-3-3-3S9 3.34 9 5H6c-1.1 0-2 .9-2 2v2c-1.66 0-3 1.34-3 3s1.34 3 3 3v4c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-4c1.66 0 3-1.34 3-3s-1.34-3-3-3zM7.5 11.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5S9.83 13 9 13s-1.5-.67-1.5-1.5zM16 17H8v-2h8v2zm-1-4c-.83 0-1.5-.67-1.5-1.5S14.17 10 15 10s1.5.67 1.5 1.5S15.83 13 15 13z',
     close: 'M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z',
     back: 'M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z',
     search: 'M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z',
@@ -408,8 +411,147 @@
     return n
   }
 
+  // ---------- the assistant (5.3): a chat with the AI the user connects, which files what it is told ----------
+  // Every service speaks the OpenAI chat API; the host (Android, PC) makes the request and keeps the key.
+  const AI = {
+    gemini: { url: 'https://generativelanguage.googleapis.com/v1beta/openai', keyUrl: 'https://aistudio.google.com/apikey', key: true, pick: [/^gemini-[\d.]+-flash$/, /flash-latest$/, /flash/] },
+    openai: { url: 'https://api.openai.com/v1', keyUrl: 'https://platform.openai.com/api-keys', key: true, pick: [/^gpt-[\d.]+-mini$/, /^gpt-[\d.]+-nano$/, /^gpt-/] },
+    ollama: { url: 'http://localhost:11434/v1', local: true },
+    lmstudio: { url: 'http://localhost:1234/v1', local: true },
+    other: { url: '' },
+  }
+  const aiReady = () => !!(H.ai && set.ai && AI[set.ai.provider] && set.ai.url && set.ai.model)
+  const NOT_CHAT = /embed|whisper|tts|audio|image|dall-e|moderation|realtime|transcri|search|veo|imagen|aqa|computer|codex|robotics/i
+  // The cheap, fast chat model of the list (names change every few months: never written here).
+  function pickModel(provider, ids) {
+    const ok = ids.filter(id => !NOT_CHAT.test(id)); const want = AI[provider].pick
+    if (!want) return ok[0] || ''
+    for (let i = 0; i < want.length; i++) { const m = ok.filter(id => want[i].test(id)).sort((a, b) => b.localeCompare(a, 'en', { numeric: true })); if (m.length) return m[0] }
+    return ok[0] || ''
+  }
+  async function aiFetch(url, body) {
+    let r
+    try { r = await H.ai(url, body ? JSON.stringify(body) : '') } catch (e) { r = { error: 'network', detail: String((e && e.message) || e) } }
+    if (!r || r.error) return { error: (r && r.error) || 'network', detail: r && r.detail }
+    let json = null
+    try { json = JSON.parse(r.body) } catch (e) { /* not JSON */ }
+    if (r.status >= 400 || !json) {
+      const e = Array.isArray(json) ? json[0] && json[0].error : json && json.error // Google answers [{error}]
+      return { error: 'http', status: r.status, detail: String((e && (e.message || e)) || r.body || '').slice(0, 200) }
+    }
+    return { json: json }
+  }
+  function aiErrorText(r, local) {
+    if (r.error === 'address') return T('aiErrAddress')
+    if (r.error !== 'http') return T(local ? 'aiErrLocal' : 'aiErrNet')
+    if (r.status === 401 || r.status === 403 || (r.status === 400 && /api.?key/i.test(r.detail))) return T('aiErrKey')
+    return r.status === 404 ? T('aiErrModel') : r.status === 429 ? T('aiErrBusy') : r.status >= 500 ? T('aiErrServer') : T('aiErrOther', r.status)
+  }
+  async function aiConnect() {
+    const f = ui.aiForm; const P = AI[f.provider]
+    const status = t => { const el = $('#aiStatus'); if (el) el.textContent = t }
+    const key = ($('#aiKey') || {}).value ? $('#aiKey').value.trim() : ''
+    let url = String(P.local || !P.url ? ($('#aiUrl') || {}).value || '' : P.url).trim().replace(/\/+$/, '').replace(/\/chat\/completions$/, '')
+    if (P.local && /^https?:\/\/[^/]+$/.test(url)) url += '/v1' // "http://192.168.1.20:11434" is enough
+    const kept = !!(set.ai && set.ai.provider === f.provider && set.ai.key)
+    if (!url) return status(T('aiNeedUrl'))
+    if (!S.aiAllowed(url)) return status(T('aiErrAddress'))
+    if (P.key && !key && !kept) return status(T('aiNeedKey'))
+    status(T('aiTesting'))
+    if (key || !kept) await H.aiKey(key) // a new key, or none: a key is never sent to another service
+    const r = await aiFetch(url + '/models')
+    let model = String(($('#aiModel') || {}).value || '').trim()
+    if (r.error && !(r.status === 404 && model)) return status(aiErrorText(r, P.local) + (r.detail ? ' (' + r.detail + ')' : ''))
+    const ids = r.json ? (r.json.data || r.json.models || []).map(m => String(m.id || m.name || '').replace(/^models\//, '')).filter(Boolean) : []
+    model = model || pickModel(f.provider, ids)
+    if (!model) return status(T(P.local ? 'aiNoModelLocal' : 'aiNoModel'))
+    set.ai = { provider: f.provider, url: url, model: model, key: !!(key || kept) }
+    saveSettings()
+    ui.aiModels = ids; ui.aiSetup = false; ui.aiForm = null
+    render(); renderAddBar()
+    snack(T('aiConnected', model))
+  }
+  // An item the model asked for, made like a typed one. The same item twice (a model repeating itself) is not added again.
+  function aiAdd(x, said) {
+    const same = it => S.fold(it.text) === S.fold(x.text)
+    const list = x.list && S.fold(said).indexOf(S.fold(x.list)) >= 0 ? lists(true).find(l => S.fold(l) === S.fold(x.list)) || cap(x.list) : '' // only a list the user named
+    if (x.kind === 'note') {
+      const old = S.live(doc.notes).find(same); if (old) return { id: old.id, old: true }
+      const n = newNote({ text: x.text, list: list }); add('notes', n); return { id: n.id }
+    }
+    if (x.kind === 'event') {
+      const old = S.live(doc.events).find(e => same(e) && e.day === x.day && e.time === x.time); if (old) return { id: old.id, old: true }
+      const e = newEvent({ text: x.text, day: x.day, time: x.time, repeat: x.repeat, place: x.place, list: list })
+      if (x.time) e.end = x.end || fromMinutes(minutes(x.time) + (+set.eventLength || 60)); else e.remind = set.remindAllDay.slice()
+      add('events', e); return { id: e.id }
+    }
+    const due = x.day ? x.day + (x.time ? 'T' + x.time : '') : null
+    const old = S.live(doc.tasks).find(t => !t.done && same(t) && t.due === due); if (old) return { id: old.id, old: true }
+    const t = newTask({ text: x.text, repeat: x.repeat, place: x.place, list: list })
+    setDue(t, due || (t.repeat ? S.today(now()) : null))
+    add('tasks', t); return { id: t.id }
+  }
+  async function aiSend(text) {
+    text = String(text || '').trim()
+    if (!text || ui.aiBusy || !aiReady()) return
+    ui.chat.push({ role: 'user', text: text })
+    ui.aiBusy = true; aiRender()
+    const history = ui.chat.filter(m => m.role !== 'error').slice(-20).map(m => (m.role === 'user' ? { role: 'user', content: m.text } : { role: 'assistant', content: m.raw || m.text }))
+    const r = await aiFetch(set.ai.url + '/chat/completions', { model: set.ai.model, messages: [{ role: 'system', content: S.aiPrompt(doc, now(), { lang: lang, lists: lists() }) }].concat(history) })
+    ui.aiBusy = false
+    if (r.error) ui.chat.push({ role: 'error', text: aiErrorText(r, AI[set.ai.provider].local), detail: r.detail })
+    else {
+      const m = (r.json.choices && r.json.choices[0] && r.json.choices[0].message) || {}
+      const content = Array.isArray(m.content) ? m.content.map(c => c.text || '').join('') : String(m.content || '')
+      const a = S.aiReply(content, now(), { mdy: /^en-US/i.test(navigator.language || '') })
+      const items = a.add.map(x => aiAdd(x, text))
+      const say = a.reply || T(items.length ? 'aiAdded' : 'aiEmpty')
+      ui.chat.push({ role: 'bot', text: say, raw: content || say, items: items })
+      const live = $('#aiLive'); if (live) live.textContent = say
+    }
+    aiRender()
+  }
+  function aiRender() { if (ui.tab !== 'ai') return; renderMain(); const m = $('#main'); m.scrollTop = m.scrollHeight }
+  const aiText = s => esc(s.replace(/\*\*([^*\n]+)\*\*/g, '$1').replace(/^\s*[*-]\s+/gm, '• ').replace(/^#+\s*/gm, ''))
+  function aiCard(r) {
+    const it = S.find(doc, r.id); if (!it) return ''
+    const k = kindOf(r.id)
+    const when = k === 'events' ? fmtDay(it.day, true) + (it.time ? ' ' + fmtTime(it.time) : '') : k === 'tasks' && it.due ? fmtDue(it) : ''
+    const what = [T(k === 'events' ? 'aiToAgenda' : k === 'notes' ? 'aiToNotes' : 'aiToTasks'), when, it.repeat ? repeatLabel(it.repeat) : '', r.old ? T('aiAlready') : ''].filter(Boolean).join(' · ')
+    return `<div class="ai-item${it.deleted ? ' gone' : ''}" data-id="${esc(r.id)}">${icon(k === 'events' ? 'calendar' : k === 'notes' ? 'note' : 'tasks')}<span><b>${esc(it.text)}</b><small>${esc(what)}</small></span>${it.deleted ? `<small>${esc(T('aiUndone'))}</small>`
+      : `<button class="text-btn" data-act="ai-open">${esc(T('open'))}</button>${r.old ? '' : `<button class="text-btn" data-act="ai-undo">${esc(T('undo'))}</button>`}`}</div>`
+  }
+  function aiMsg(m, i) {
+    if (m.role === 'user') return `<div class="msg me">${esc(m.text)}</div>`
+    if (m.role === 'error') return `<div class="msg bot err">${icon('warn')}<span>${esc(m.text)}${m.detail ? `<small>${esc(m.detail)}</small>` : ''}${i === ui.chat.length - 1 ? `<span class="btns"><button class="tonal small" data-act="ai-retry">${esc(T('aiRetry'))}</button><button class="text-btn" data-act="ai-setup">${esc(T('aiSettings'))}</button></span>` : ''}</span></div>`
+    return `<div class="msg bot">${aiText(m.text)}${(m.items || []).map(aiCard).join('')}</div>`
+  }
+  function aiSetupView() {
+    const f = ui.aiForm || (ui.aiForm = { provider: set.ai ? set.ai.provider : 'gemini', url: set.ai ? set.ai.url : null, model: set.ai ? set.ai.model : '' })
+    const P = AI[f.provider]; const phone = H.platform === 'android' && P.local
+    const url = f.url !== null ? f.url : phone ? '' : P.url
+    const saved = set.ai && set.ai.provider === f.provider && set.ai.key
+    return card('bot', T('aiConnect'), `<p class="hint">${esc(T('aiIntro'))}</p>
+      <label class="field">${esc(T('aiService'))}<select id="aiProvider">${Object.keys(AI).map(k => `<option value="${k}" ${k === f.provider ? 'selected' : ''}>${esc(T('ai_' + k))}</option>`).join('')}</select></label>
+      <p class="hint">${esc(T('aiHint_' + f.provider + (phone ? '_phone' : '')))}</p>
+      ${P.keyUrl ? `<div class="btns"><button class="tonal small" data-act="ai-get-key">${icon('link')}${esc(T('aiGetKey'))}</button></div>` : ''}
+      ${P.local ? '' : `<label class="field">${esc(T(P.key ? 'aiKey' : 'aiKeyOptional'))}<input id="aiKey" type="password" autocomplete="off" spellcheck="false" value="${esc(f.key || '')}" placeholder="${esc(T(saved ? 'aiKeySaved' : 'aiKeyPaste'))}"></label>`}
+      ${P.local || !P.url ? `<label class="field">${esc(T('aiUrl'))}<input id="aiUrl" type="url" inputmode="url" autocomplete="off" spellcheck="false" value="${esc(url)}" placeholder="http://192.168.1.20:${f.provider === 'lmstudio' ? 1234 : 11434}/v1"></label>` : ''}
+      <label class="field">${esc(T('aiModel'))}<input id="aiModel" list="aiModels" autocomplete="off" spellcheck="false" value="${esc(f.model || '')}" placeholder="${esc(T('aiModelAuto'))}"></label>
+      <datalist id="aiModels">${ui.aiModels.map(m => `<option value="${esc(m)}">`).join('')}</datalist>
+      <p class="hint">${esc(T(P.local ? 'aiPrivacyLocal' : 'aiPrivacy'))}</p>
+      <p id="aiStatus" class="hint" role="status"></p>
+      <div class="btns"><button class="filled" data-act="ai-connect">${icon('check')}${esc(T('aiConnectBtn'))}</button>${set.ai ? `<button class="text-btn" data-act="ai-cancel">${esc(T('cancel'))}</button><button class="text-btn" data-act="ai-forget">${esc(T('aiForget'))}</button>` : ''}</div>`)
+  }
+  function aiView() {
+    if (!H.ai) return card('bot', T('tab_ai'), `<p class="hint">${esc(T('aiOnlyApps'))}</p>`)
+    if (!aiReady() || ui.aiSetup) return aiSetupView()
+    const hello = `<div class="msg bot">${esc(T('aiHello'))}<div class="chips wrap">${T('aiExamples').split('|').map(x => `<button class="chip" data-act="ai-say" data-v="${esc(x)}">${esc(x)}</button>`).join('')}</div></div>`
+    return `<div class="chat">${hello}${ui.chat.map(aiMsg).join('')}${ui.aiBusy ? `<div class="msg bot busy">${esc(T('aiThinking'))}</div>` : ''}</div>`
+  }
+
   // ---------- page ----------
-  const TABS = [['tasks', 'tasks'], ['notes', 'note'], ['agenda', 'calendar'], ['plus', 'tune']]
+  const TABS = [['tasks', 'tasks'], ['notes', 'note'], ['agenda', 'calendar'], ['ai', 'bot'], ['plus', 'tune']]
   function renderShell() {
     document.body.innerHTML = `
       <div id="app">
@@ -435,6 +577,7 @@
       <div id="sheet" role="dialog" aria-modal="true" hidden></div>
       <div id="dialog" hidden></div>
       <div id="snack" role="status" aria-live="polite"></div>
+      <div id="aiLive" class="sr" aria-live="polite"></div>
       <input id="photoInput" type="file" accept="image/*" hidden>
       <input id="cameraInput" type="file" accept="image/*" capture="environment" hidden>`
     lastMain = ''
@@ -444,7 +587,7 @@
     document.documentElement.lang = lang
     $$('#nav button').forEach(b => { const on = b.dataset.tab === ui.tab; b.classList.toggle('on', on); if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current') })
     renderTop(); renderMain(); renderFocus()
-    const addHere = ui.tab !== 'plus'
+    const addHere = ui.tab !== 'plus' && (ui.tab !== 'ai' || aiReady())
     $('#addBar').hidden = !addHere
     if (addHere && $('#addBar').dataset.tab !== ui.tab) renderAddBar()
     $('#fab').hidden = true
@@ -465,10 +608,12 @@
       sub = parts.map((p, i) => i ? '<span class="nb">' + p + '</span>' : esc(p)).join(' · ') // "🔥 6 j" never splits
     } else if (ui.tab === 'notes') sub = esc(plural(S.live(doc.notes).length, 'notesOne', 'notesMany'))
     else if (ui.tab === 'agenda') sub = esc(cap(fmt({ weekday: 'long', day: 'numeric', month: 'long' }, new Date())))
+    else if (ui.tab === 'ai') sub = esc(aiReady() ? set.ai.model + ' · ' + T('ai_' + set.ai.provider) : T('aiSub'))
     else sub = esc(T('plusSub'))
     $('#subtitle').innerHTML = sub
     let actions = ''
-    if (ui.tab !== 'plus') actions += `<button class="icon-btn" data-act="search-open" aria-label="${esc(T('search'))}" title="${esc(T('search'))}">${icon('search')}</button>`
+    if (ui.tab === 'ai' && aiReady() && !ui.aiSetup) actions += act('ai-new', 'add', T('aiNew')) + act('ai-setup', 'tune', T('aiSettings'))
+    if (ui.tab !== 'plus' && ui.tab !== 'ai') actions += `<button class="icon-btn" data-act="search-open" aria-label="${esc(T('search'))}" title="${esc(T('search'))}">${icon('search')}</button>`
     if (ui.tab === 'tasks' || ui.tab === 'agenda') actions += `<button class="icon-btn" data-act="${ui.tab === 'tasks' ? 'share-list' : 'share-day'}" aria-label="${esc(T(ui.tab === 'tasks' ? 'shareList' : 'shareDay'))}" title="${esc(T(ui.tab === 'tasks' ? 'shareList' : 'shareDay'))}">${icon('share')}</button>`
     if (ui.tab === 'agenda') actions += `<button class="tonal small" data-act="cal-today">${esc(T('todayBtn'))}</button>`
     $('#topActions').innerHTML = actions
@@ -478,7 +623,7 @@
   }
   function renderChips() {
     const el = $('#chips')
-    if (ui.tab === 'plus' || ui.tab === 'agenda' || ui.query) { el.innerHTML = ''; el.hidden = true; return }
+    if (ui.tab === 'plus' || ui.tab === 'agenda' || ui.tab === 'ai' || ui.query) { el.innerHTML = ''; el.hidden = true; return }
     const items = ui.tab === 'tasks' ? S.live(doc.tasks) : S.live(doc.notes)
     const ls = lists().filter(l => items.some(x => x.list === l))
     const tg = allTags().filter(t => items.some(x => S.tags(x.text + ' ' + (x.details || '')).indexOf(t) >= 0))
@@ -493,7 +638,7 @@
   let lastMain = ''
   function renderMain() {
     const main = $('#main'); if (!main) return
-    const html = ui.query.trim() ? searchView() : ui.tab === 'tasks' ? tasksView() : ui.tab === 'notes' ? notesView() : ui.tab === 'agenda' ? agendaView() : plusView()
+    const html = ui.query.trim() ? searchView() : ui.tab === 'tasks' ? tasksView() : ui.tab === 'notes' ? notesView() : ui.tab === 'agenda' ? agendaView() : ui.tab === 'ai' ? aiView() : plusView()
     const cls = 'tab-' + ui.tab
     if (html === lastMain && main.className === cls) return // nothing changed: screen readers keep their place
     // The same control gets the focus back (or the row that took the place of a ticked task).
@@ -724,14 +869,14 @@
   // ---------- add bar ----------
   function renderAddBar() {
     const bar = $('#addBar'); bar.dataset.tab = ui.tab
-    const notes = ui.tab === 'notes'; const agenda = ui.tab === 'agenda'
+    const notes = ui.tab === 'notes'; const agenda = ui.tab === 'agenda'; const bot = ui.tab === 'ai'
     const what = notes ? 'Note' : agenda ? 'Event' : 'Task'
     bar.innerHTML = `
       <div class="add-row">
         ${H.can.voice ? `<button type="button" class="icon-btn" data-act="mic" aria-label="${esc(T('dictate'))}" title="${esc(T('dictate'))}">${icon('mic')}</button>` : ''}
-        <textarea id="addInput" rows="1" enterkeyhint="send" aria-label="${esc(T('new' + what))}" placeholder="${esc(T((notes ? 'note' : agenda ? 'event' : 'task') + 'Placeholder'))}"></textarea>
+        <textarea id="addInput" rows="1" enterkeyhint="send" aria-label="${esc(T(bot ? 'aiAsk' : 'new' + what))}" placeholder="${esc(T(bot ? 'aiPlaceholder' : (notes ? 'note' : agenda ? 'event' : 'task') + 'Placeholder'))}"></textarea>
         ${notes || agenda ? `<button type="button" class="icon-btn" data-act="${notes ? 'note-full' : 'event-full'}" aria-label="${esc(T(notes ? 'fullNote' : 'fullEvent'))}" title="${esc(T(notes ? 'fullNote' : 'fullEvent'))}">${icon('edit')}</button>` : ''}
-        <button type="submit" class="send" aria-label="${esc(T('add'))}">${icon(notes ? 'add' : 'send')}</button>
+        <button type="submit" class="send" aria-label="${esc(T(bot ? 'aiSend' : 'add'))}">${icon(notes ? 'add' : 'send')}</button>
       </div>
       <div id="addHint" class="add-hint" hidden></div>
       <input id="addDate" type="date" class="hidden-date" tabindex="-1" aria-hidden="true">`
@@ -743,7 +888,7 @@
   function autoGrow(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 160) + 'px' }
   function renderHint() {
     const hint = $('#addHint'); const input = $('#addInput'); if (!hint || !input) return
-    if (ui.tab === 'notes') { hint.hidden = true; return }
+    if (ui.tab === 'notes' || ui.tab === 'ai') { hint.hidden = true; return }
     const v = input.value.trim()
     if (!v) ui.draft.raw = false
     const p = v && !ui.draft.raw ? parse(v.split('\n')[0]) : { due: null, repeat: null }
@@ -768,6 +913,7 @@
     const v = input.value
     if (!v.trim()) { input.focus(); return }
     if (ui.tab === 'notes') { const n = addNote(v); snack(T('noteAdded'), [{ label: T('open'), run: () => openSheet(n.id) }]) }
+    else if (ui.tab === 'ai') { if (ui.aiBusy) return; aiSend(v) } // still answering: the text waits in the field
     else addSaid(v)
     input.value = ''; autoGrow(input); renderHint()
     input.focus()
@@ -1329,7 +1475,7 @@
     S.live(doc.notes).forEach(x => lines.push(x.text, '———'))
     return lines.join('\n')
   }
-  const LOCAL_KEYS = ['focus', 'welcomed', 'news', 'backupLast', 'backupAsked', 'recentTimes'] // this device only
+  const LOCAL_KEYS = ['focus', 'welcomed', 'news', 'backupLast', 'backupAsked', 'recentTimes', 'ai'] // this device only
   const portable = () => { const o = Object.assign({}, set); LOCAL_KEYS.forEach(k => { delete o[k] }); return o }
   async function importData(kind) {
     const f = await H.importFile(kind === 'ics' ? '.ics,text/calendar' : '.json,.txt,.md,application/json,text/plain')
@@ -1519,6 +1665,16 @@
   // ---------- clicks ----------
   const ACTS = {
     tab: el => switchTab(el.dataset.tab),
+    'ai-connect': () => aiConnect(),
+    'ai-setup': () => { ui.aiSetup = true; ui.aiForm = null; render() },
+    'ai-cancel': () => { ui.aiSetup = false; ui.aiForm = null; render() },
+    'ai-forget': () => { set.ai = null; saveSettings(); H.aiKey(''); ui.chat = []; ui.aiSetup = false; ui.aiForm = null; ui.aiModels = []; render() },
+    'ai-new': () => { ui.chat = []; render() },
+    'ai-say': el => aiSend(el.dataset.v),
+    'ai-retry': () => { const i = ui.chat.length - 1; if (i < 1 || ui.chat[i].role !== 'error') return; const said = ui.chat[i - 1].text; ui.chat.splice(i - 1, 2); aiSend(said) },
+    'ai-get-key': () => { const P = ui.aiForm && AI[ui.aiForm.provider]; if (P && P.keyUrl) H.openUrl(P.keyUrl) },
+    'ai-open': (el, id) => { const it = S.find(doc, id); if (it && !it.deleted) openSheet(id, { day: it.day }) },
+    'ai-undo': (el, id) => { const it = S.find(doc, id); if (it) put(Object.assign(it, { deleted: true })) },
     'search-open': openSearch, 'search-close': closeSearch,
     filter: el => { ui.filter = el.dataset.v || null; render() },
     toggle: (el, id) => toggleTask(id),
@@ -1540,7 +1696,7 @@
     'add-imp': () => { ui.draft.important = !ui.draft.important; renderHint(); $('#addInput').focus() },
     'add-daily': () => { ui.draft.repeat = ui.draft.repeat === 'daily' ? null : 'daily'; renderHint(); $('#addInput').focus() },
     'add-raw': () => { ui.draft.raw = true; renderHint(); $('#addInput').focus() },
-    mic: () => { if (!H.voice) return; H.voice().then(text => { if (text) addSaid(text) }) },
+    mic: () => { if (!H.voice) return; H.voice().then(text => { if (text) (ui.tab === 'ai' ? aiSend : addSaid)(text) }) },
     'note-full': () => { const i = $('#addInput'); const v = i ? i.value : ''; if (i) i.value = ''; newNoteFull(v) },
     'event-full': () => {
       const i = $('#addInput'); const v = i ? i.value.trim() : ''; if (i) { i.value = ''; autoGrow(i) }
@@ -1779,7 +1935,7 @@
     if (mod && e.key === 'Enter' && ui.sheet && (!dlg || dlg.hidden)) { e.preventDefault(); return closeSheet() }
     if (mod && e.key.toLowerCase() === 'f') { e.preventDefault(); openSearch() }
     else if (mod && e.key.toLowerCase() === 'n') { e.preventDefault(); quickNew() }
-    else if (!typing && e.altKey && /^[1-4]$/.test(e.key)) { e.preventDefault(); switchTab(TABS[+e.key - 1][0]) }
+    else if (!typing && e.altKey && /^[1-5]$/.test(e.key)) { e.preventDefault(); switchTab(TABS[+e.key - 1][0]) }
     else if (!typing && !mod && e.key === '/') { e.preventDefault(); openSearch() }
     else if (!typing && !mod && !e.altKey && !ui.sheet && (!dlg || dlg.hidden) && rowKeys(e)) e.preventDefault()
   }
@@ -1864,6 +2020,8 @@
       if (el.id === 'search') { if (e.type === 'input') { ui.query = el.value; renderMain() } }
       else if (el.id === 'photoInput' || el.id === 'cameraInput') { if (e.type === 'change') onPhoto(e) }
       else if (el.id === 'addDate') { if (e.type === 'change' && el.value) { ui.draft.due = el.value; renderHint(); const i = $('#addInput'); if (i) i.focus() } }
+      else if (el.id === 'aiProvider') { if (e.type === 'change') { ui.aiForm = { provider: el.value, url: null, model: '' }; renderMain() } }
+      else if (/^ai(Url|Model|Key)$/.test(el.id)) { if (ui.aiForm) ui.aiForm[el.id.slice(2).toLowerCase()] = el.value } // kept if the form is drawn again
       else if (el.closest && el.closest('#sheet')) onField(e)
       else if (el.dataset && el.dataset.set && e.type === 'change') onSettingInput(e)
     }
@@ -1910,13 +2068,13 @@
   function whatsNew(seen) {
     const before = set.before511 // the reminder settings the new defaults replaced (they may have been chosen on purpose)
     set.welcomed = true; set.news = NEWS; set.before511 = null; saveSettings()
-    const items = (seen < 0 ? T('whatsNew').split('|') : []).concat(seen < 51 ? T('whatsNew51').split('|') : [], seen < 52 ? T('whatsNew511').split('|') : [], T('whatsNew52').split('|'))
+    const items = (seen < 0 ? T('whatsNew').split('|') : []).concat(seen < 51 ? T('whatsNew51').split('|') : [], seen < 52 ? T('whatsNew511').split('|') : [], seen < 53 ? T('whatsNew52').split('|') : [], T('whatsNew53').split('|'))
     const old = S.live(doc.events).filter(e => String(e.remind) === '15' && (e.repeat || e.day >= S.today(now())))
     const opts = []
     if (old.length && String(set.remindEvent) === String(DEFAULTS.remindEvent)) opts.push({ label: plural(old.length, 'newRemindOne', 'newRemindMany'), value: 2, menu: true, icon: 'calendar' })
     if (before) opts.push({ label: T('keepOldReminders'), value: 3, menu: true, icon: 'undo' })
     opts.push({ label: T('letsGo'), value: 1 })
-    choose(T('whatsNewTitle52'), '', opts, `<ul class="tips">${items.map(t => `<li>${esc(t)}</li>`).join('')}</ul>`).then(v => {
+    choose(T('whatsNewTitle53'), '', opts, `<ul class="tips">${items.map(t => `<li>${esc(t)}</li>`).join('')}</ul>`).then(v => {
       if (v === 3) { Object.assign(set, before); saveSettings(); snack(T('oldRemindersKept')) }
       if (v !== 2) return
       const setAll = r => { old.forEach(o => { const e = S.find(doc, o.id); if (e) { e.remind = r.slice(); touch(e) } }); commit() } // by id: a sync may have replaced the objects

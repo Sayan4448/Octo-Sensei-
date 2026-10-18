@@ -84,6 +84,8 @@
       backupInfo: has('backupInfo') ? () => Promise.resolve(json(A.backupInfo(), {})) : null,
       testAlarmIn: has('testAlarmIn') ? (minutes, loud) => A.testAlarmIn(minutes, !!loud) : null,
       shareImage: has('shareImage') ? (src, text) => A.shareImage(src, text || '') : null,
+      ai: has('ai') ? (url, body) => wait(id => A.ai(id, url, body)).then(value) : null, // the assistant: the phone makes the request
+      aiKey: has('aiKey') ? key => Promise.resolve(A.aiKey(key || '')) : null, // kept by the phone, never shown to the page again
     }
   }
 
@@ -104,6 +106,7 @@
       chooseBackupFolder: D.chooseBackupFolder ? () => D.chooseBackupFolder() : null,
       clearBackupFolder: D.clearBackupFolder ? () => D.clearBackupFolder() : null,
       backupInfo: D.backupInfo ? () => D.backupInfo() : null,
+      ai: D.ai ? (url, body) => D.ai(url, body) : null, aiKey: D.aiKey ? key => D.aiKey(key || '') : null,
       startAction: () => null,
     })
   }

@@ -57,7 +57,7 @@ h1 { font-size: 1.6rem; font-weight: 600; margin: 6px 0 0; letter-spacing: -.01e
 #searchBar input { flex: 1; min-width: 0; border: 0; background: transparent; outline: 0; font-size: 1rem; min-height: 48px; color: var(--on-surface) }
 #chips { margin: 0 0 6px }
 
-#nav { display: grid; grid-template-columns: repeat(4, 1fr); background: var(--surface-mid); padding: 8px 0 calc(10px + env(safe-area-inset-bottom)) }
+#nav { display: grid; grid-template-columns: repeat(5, 1fr); background: var(--surface-mid); padding: 8px 0 calc(10px + env(safe-area-inset-bottom)) }
 #nav button { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: .75rem; font-weight: 500; color: var(--on-variant); min-height: 56px; padding: 0 2px }
 #nav button .ic { width: 64px; height: 32px; padding: 4px 20px; border-radius: 16px; transition: background .15s }
 #nav button.on { color: var(--on-surface); font-weight: 700 }
@@ -94,7 +94,7 @@ button.danger { padding: 10px 16px; border-radius: 999px; font-weight: 600 }
 .lchip { font-size: .75rem; line-height: 1.5; padding: 0 8px; border-radius: 6px; background: hsl(var(--h) 70% 92%); color: hsl(var(--h) 45% 28%); font-weight: 500 }
 :root[data-theme="dark"] .lchip { background: hsl(var(--h) 25% 26%); color: hsl(var(--h) 70% 86%) }
 .count { font-size: .75rem; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: var(--surface-highest); color: var(--on-variant) }
-input[type=date], input[type=time], input[type=number], input:not([type]), input[type=text], select, textarea.details, .list-input, .step-new, #syncBox input {
+input[type=date], input[type=time], input[type=number], input:not([type]), input[type=text], input[type=password], input[type=url], select, textarea.details, .list-input, .step-new, #syncBox input {
   background: var(--surface-highest); border: 0; border-bottom: 2px solid var(--outline); border-radius: 8px 8px 0 0; padding: 10px 12px; min-height: 48px; max-width: 100%
 }
 input:focus, select:focus, textarea:focus { border-bottom-color: var(--primary); outline: none }
@@ -375,3 +375,23 @@ p.ok > .ic { color: var(--ok) } p.warn > .ic { color: var(--late) }
 .m.prio { color: var(--star); font-weight: 800; letter-spacing: -1px }
 .lists li.archived { opacity: .6 }
 .lists li small { margin-left: 6px; color: var(--on-variant) }
+
+/* ---------- 5.3: the assistant ---------- */
+.tab-ai .pcard .field { margin-top: 12px }
+.chat { display: flex; flex-direction: column; gap: 10px; padding: 8px 0 16px }
+.msg { max-width: min(88%, 560px); padding: 10px 14px; border-radius: 20px; white-space: pre-wrap; overflow-wrap: anywhere }
+.msg.me { align-self: flex-end; background: var(--primary-container); color: var(--on-primary-container); border-bottom-right-radius: 6px }
+.msg.bot { align-self: flex-start; background: var(--surface-high); border-bottom-left-radius: 6px }
+.msg.busy { color: var(--on-variant); font-style: italic }
+.msg.err { display: flex; gap: 8px; align-items: flex-start; white-space: normal }
+.msg.err > .ic { color: var(--error) }
+.msg small { display: block; color: var(--on-variant); font-size: .8125rem; margin-top: 4px }
+.msg .chips, .msg .btns { white-space: normal; margin-top: 10px }
+.msg .chip { white-space: normal; text-align: left }
+.ai-item { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 6px 4px 6px 12px; border-radius: 14px; background: var(--surface); white-space: normal }
+.ai-item > .ic { color: var(--primary) }
+.ai-item > span { flex: 1; min-width: 0; display: flex; flex-direction: column }
+.ai-item > span small { margin: 0 }
+.ai-item .text-btn { padding: 8px; flex: none }
+.ai-item.gone b { text-decoration: line-through; color: var(--on-variant) }
+@media (max-width: 380px) { #nav button .ic { width: 52px; padding: 4px 14px } }

@@ -252,6 +252,9 @@ ipcMain.handle('syncConnect', async (e, input, code) => {
   return syncWithPhone()
 })
 ipcMain.handle('syncNow', () => syncWithPhone())
+// The assistant: the page names the service and the message, the key stays here (local.json, never in backups).
+ipcMain.handle('aiKey', (e, key) => { local.aiKey = key || null; saveLocal(); return true })
+ipcMain.handle('ai', (e, url, body) => (Store.aiAllowed(url) ? rules.ai(net.fetch, url, local.aiKey, body) : { error: 'address' })) // no key in clear over the internet
 ipcMain.handle('syncForget', () => { local.sync = null; status.ok = false; status.error = null; saveLocal(); buildTray() })
 
 // ---------- start ----------
