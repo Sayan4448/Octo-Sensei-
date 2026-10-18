@@ -22,7 +22,8 @@ test('every key used by the interface exists in both languages', () => {
     rk_: ['none', 'daily', 'weekdays', 'weekly', 'pick', 'weeks', 'monthly', 'months', 'nth', 'yearly', 'ndays', 'hours'],
     unit_: ['weeks', 'months', 'ndays', 'hours'], ord_: ['1', '2', '3', '4', '5', '-1'],
     pre_: ['today', 'tonight', 'tomorrow', 'monday', 'weekend', 'in1h', 'in3h'],
-    sec_: ['late', 'today', 'starred', 'tomorrow', 'week', 'later', 'nodate', 'done'], tab_: ['tasks', 'notes', 'agenda', 'plus'],
+    sec_: ['late', 'today', 'starred', 'tomorrow', 'week', 'later', 'nodate', 'done'], tab_: ['tasks', 'notes', 'agenda', 'ai', 'plus'],
+    ai_: ['gemini', 'openai', 'ollama', 'lmstudio', 'other'], aiHint_: ['gemini', 'openai', 'ollama', 'ollama_phone', 'lmstudio', 'lmstudio_phone', 'other'],
     new: ['Task', 'Note', 'Event'], '': ['taskPlaceholder', 'notePlaceholder', 'eventPlaceholder'],
   }
   ;['notifications', 'exact', 'battery', 'fullscreen', 'storage', 'samsung', 'xiaomi'].forEach(k => { used.add('diag_' + k); used.add('diag_' + k + '_fix') }) // Android's checks

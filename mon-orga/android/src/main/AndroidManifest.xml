@@ -20,13 +20,15 @@
         <intent><action android:name="android.speech.action.RECOGNIZE_SPEECH" /></intent>
     </queries>
 
-    <!-- Google backup: GoogleBackupAgent skips it when the user turned it off or the lock is on. -->
+    <!-- Google backup: GoogleBackupAgent skips it when the user turned it off or the lock is on.
+         Cleartext: only for a local AI on the Wi-Fi (http://192.168.x.x); Ai.allowed refuses plain http anywhere else. -->
     <application
         android:allowBackup="true"
         android:backupAgent=".GoogleBackupAgent"
         android:fullBackupOnly="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
+        android:usesCleartextTraffic="true"
         android:theme="@style/AppTheme">
         <activity
             android:name=".MainActivity"

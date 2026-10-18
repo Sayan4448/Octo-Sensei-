@@ -807,11 +807,112 @@
   }
   function hash(s) { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0; return h.toString(36) }
 
+  // ---------- the AI assistant: any service speaking the OpenAI chat API (Google AI Studio, OpenAI, Ollama, LM Studio…) ----------
+  // Plain http only to this device or the local network: an API key never crosses the internet unencrypted.
+  const aiAllowed = url => /^https:\/\/[^\s/?#]+/i.test(str(url)) ||
+    /^http:\/\/(?:localhost|127(?:\.\d{1,3}){3}|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}|\[::1\]|[a-z0-9-]+\.local)(?::\d{1,5})?(?:[/?#]|$)/i.test(str(url))
+  const AI_EXAMPLES = {
+    fr: ['Dentiste', 'Acheter du pain', 'Code du portail : 4521'], en: ['Dentist', 'Buy bread', 'Gate code: 4521'],
+  }
+  // What the model is told: the date, the next two weeks, what is already planned, and how to answer.
+  function aiPrompt(doc, nowMs, o) {
+    o = o || {}
+    const fr = o.lang !== 'en'
+    const td = today(nowMs)
+    const name = d => cap(EN_DAYS[weekday(d) - 1])
+    const days = []; const events = []
+    for (let i = 0; i < 14; i++) {
+      const d = addDays(td, i)
+      days.push(name(d).slice(0, 3) + ' ' + d + (i === 0 ? ' (today)' : i === 1 ? ' (tomorrow)' : ''))
+      eventsOn(live(doc.events), d).forEach(e => events.push('- ' + name(d).slice(0, 3) + ' ' + d + ' ' + (e.time ? e.time + (e.end ? '-' + e.end : '') : 'all day') + ': ' + e.text + (e.place ? ' @ ' + e.place : '')))
+    }
+    const tasks = live(doc.tasks).filter(t => !t.done).sort((a, b) => (a.due || '9') < (b.due || '9') ? -1 : 1).slice(0, 40)
+      .map(t => '- ' + (t.due ? (dayOf(t.due) < td ? 'late, ' : '') + name(dayOf(t.due)).slice(0, 3) + ' ' + t.due.replace('T', ' ') : 'no date') + (t.repeat ? ', repeats ' + t.repeat : '') + ': ' + t.text + (t.list ? ' [list ' + t.list + ']' : ''))
+    const ex = AI_EXAMPLES[fr ? 'fr' : 'en']; const d3 = addDays(td, 3)
+    const w3 = fr ? FR_DAYS[weekday(d3) - 1] + ' 14h' : name(d3) + ' 2pm'
+    return [
+      'You are the assistant inside "Mon Orga", an app with a to-do list, notes and an agenda. You chat with its user: you add appointments to their agenda, tasks to their to-do list and notes, and you answer questions about what they have planned. Be short, warm and a little funny. Always speak ' + (fr ? 'French' : 'English') + '.',
+      'Now: ' + name(td) + ' ' + td + ' ' + hm(new Date(nowMs)) + '.',
+      'The next 14 days: ' + days.join(', ') + '.',
+      'Their agenda for the next 14 days:\n' + (events.slice(0, 60).join('\n') || '(nothing)'),
+      'Their open tasks:\n' + (tasks.join('\n') || '(none)'),
+      o.lists && o.lists.length ? 'Their lists: ' + o.lists.join(', ') + '.' : '',
+      'Always answer with exactly one JSON object and nothing else:\n{"reply": "what you say to the user", "add": []}\n' +
+      '"add" holds only the NEW items to create now (none when nothing is to be added), never items already created or listed above. Each item is one of:\n' +
+      '{"type": "event", "title": "' + ex[0] + '", "when": "' + w3 + '", "date": "' + d3 + '", "time": "14:00", "place": "", "repeat": ""}\n' +
+      '{"type": "task", "title": "' + ex[1] + '", "when": "' + (fr ? 'demain' : 'tomorrow') + '", "date": "' + addDays(td, 1) + '", "time": "", "repeat": "", "list": ""}\n' +
+      '{"type": "note", "title": "' + ex[2] + '"}\n' +
+      '"event" is an appointment, a meeting or anything at a set time with others; "task" is something to do or a reminder; "note" is information to keep. ' +
+      '"when" repeats the user\'s own words for the day, the time and the repetition ("demain matin", "tous les jours à 18h", "next Monday 9am"), "" when they gave none. ' +
+      '"date" and "time" say the same as YYYY-MM-DD and HH:MM (24 h), "" when not given; add "end": "HH:MM" when an end time is said. repeat is "", "daily", "weekdays", "weekly", "monthly" or "yearly". The title is short, without the date or the time. ' +
+      'An event needs a day: when it is missing, ask for it and add nothing yet. You can only add: to change, move or delete something, tell the user to do it in the app. ' +
+      'What you add is shown under your reply, with buttons to open or undo it: no need to tell the user to check the app.',
+    ].filter(Boolean).join('\n\n')
+  }
+  const AI_KINDS = { event: 'event', appointment: 'event', rdv: 'event', 'rendez-vous': 'event', meeting: 'event', agenda: 'event', task: 'task', todo: 'task', tache: 'task', reminder: 'task', rappel: 'task', note: 'note' }
+  const AI_REPEAT = /^(?:daily|weekdays|weekly(?::[1-7](?:,[1-7])*)?|monthly|yearly|(?:days|weeks|months):\d{1,3})$/
+  const AI_TODAY = /aujourd|today|tonight|ce (?:soir|matin|midi)|cet apr|this (?:morning|afternoon|evening)|maintenant|\bnow\b/i
+  const aiTime = v => { const m = /^(\d{1,2})\s*[:h]\s*(\d{2})?$/i.exec(str(v).trim()); return m && +m[1] < 24 && +(m[2] || 0) < 60 ? pad(+m[1]) + ':' + (m[2] || '00') : null }
+  // Every top-level {…} or […] of a text that is JSON, and the text around them.
+  function jsonParts(text) {
+    const values = []; let rest = ''; let from = 0; let depth = 0; let start = 0; let q = false; let bs = false
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i]
+      if (q) { if (bs) bs = false; else if (c === '\\') bs = true; else if (c === '"') q = false; continue }
+      if (c === '"' && depth) q = true
+      else if (c === '{' || c === '[') { if (!depth++) start = i }
+      else if ((c === '}' || c === ']') && depth && !--depth) {
+        try { values.push(JSON.parse(text.slice(start, i + 1))); rest += text.slice(from, start); from = i + 1 } catch (e) { /* not JSON: stays text */ }
+      }
+    }
+    return { values: values, rest: (rest + text.slice(from)).replace(/```(?:json)?/gi, '').trim() }
+  }
+  // One item from the model: its own words for the day ("mardi 14h") are read like a typed sentence, so a small
+  // model that gets the date of "mardi" wrong still lands on the right day; its YYYY-MM-DD date is the fallback.
+  function aiItem(x, nowMs, opts) {
+    if (!x || typeof x !== 'object') return null
+    let kind = AI_KINDS[fold(x.type || x.kind).trim()]
+    let title = str(x.title || x.text || x.name).trim()
+    if (!kind || !title) return null
+    if (kind === 'note') return { kind: kind, text: title }
+    const when = str(x.when).trim(); const raw = str(x.date || x.day).trim()
+    const iso = /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{1,2}:\d{2}))?/.exec(raw)
+    let day = iso && ymd(parseDay(iso[1])) === iso[1] ? iso[1] : null
+    let time = aiTime(x.time) || (iso && aiTime(iso[2]))
+    const words = [when || (day ? '' : raw), time ? '' : str(x.time)].join(' ').trim() // "time": "matin" joins "demain"
+    let p = words ? parse(words, nowMs, opts) : {}
+    if (!p.due && !day && !when) { const t = parse(title, nowMs, opts); if (t.due) { p = t; title = t.text || title } } // "Dentiste mardi" as the title
+    if (p.due) {
+      if (dayOf(p.due) !== today(nowMs) || p.repeat || AI_TODAY.test(when || raw) || !day) day = dayOf(p.due) // "14h" alone keeps the date given
+      time = timeOf(p.due) || time
+    }
+    const repeat = p.repeat || (AI_REPEAT.test(str(x.repeat).trim()) ? str(x.repeat).trim() : null)
+    if (kind === 'event' && !day) kind = 'task' // no day yet: a to-do to plan it, as typed sentences do
+    const end = kind === 'event' && time && aiTime(x.end) > time ? aiTime(x.end) : null
+    return { kind: kind, text: title, day: day, time: day ? time : null, end: end, repeat: repeat, place: str(x.place || p.place).trim(), list: str(x.list).trim() }
+  }
+  // The model's answer: {reply, add: [items]}. Tolerant: text around the JSON, ```json fences, <think> blocks,
+  // items without their {"reply", "add"} wrapper. An answer without JSON is shown as said, with nothing added.
+  function aiReply(content, nowMs, opts) {
+    const text = str(content).replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
+    const parts = jsonParts(text)
+    let reply = ''; const items = []
+    parts.values.forEach(v => (Array.isArray(v) ? v : [v]).forEach(o => {
+      if (!o || typeof o !== 'object') return
+      if ('reply' in o || 'add' in o) { reply = reply || str(o.reply).trim(); items.push.apply(items, Array.isArray(o.add) ? o.add : o.add ? [o.add] : []) }
+      else if (o.type || o.kind) items.push(o)
+    }))
+    const add = items.map(x => aiItem(x, nowMs, opts)).filter(Boolean)
+    if (!reply && !add.length) reply = parts.values.length ? parts.rest : text
+    return { reply: reply || (parts.rest.length < 400 ? parts.rest : ''), add: add }
+  }
+
   const api = {
     MORNING, SECTIONS, pad, ymd, hm, stamp, ms, toDate, parseDay, dayOf, timeOf, addDays, addMonths, between, weekday, today,
     repeatDays, nextDay, occursOn, nextOccurrence, eventSpan, eventStartOn, eventsOn, alarms, nextAlarm,
     sectionOf, sortTasks, pri, complete, postpone, histTime, streak, doneSince, level,
     newId, normalize, empty, find, merge, purge, live, fold, matches, tags, parse, understand, APPOINTMENT, toIcs, fromIcs, rrule,
+    aiAllowed, aiPrompt, aiReply,
   }
   if (typeof module !== 'undefined' && module.exports) module.exports = api
   else root.Store = api

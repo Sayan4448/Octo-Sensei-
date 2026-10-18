@@ -425,3 +425,63 @@ test('multi-day and repeating events cover the right days', () => {
   assert.equal(S.eventsOn(e, '2026-10-30').length, 1)
   assert.equal(S.eventsOn(e, '2026-10-23').length, 0)
 })
+
+test('the AI assistant (5.3): plain http only on the local network', () => {
+  for (const u of ['https://api.openai.com/v1', 'https://generativelanguage.googleapis.com/v1beta/openai', 'http://localhost:11434/v1', 'http://127.0.0.1:1234/v1',
+    'http://192.168.1.20:11434/v1', 'http://10.0.0.5/v1', 'http://172.20.1.2:8080/v1', 'http://mon-pc.local:11434/v1']) assert.ok(S.aiAllowed(u), u)
+  for (const u of ['http://api.openai.com/v1', 'http://8.8.8.8/v1', 'http://192.168.1.20.evil.com/v1', 'http://172.32.0.1/v1', 'ftp://192.168.1.2', 'javascript:alert(1)', '', null, 'https://']) assert.ok(!S.aiAllowed(u), String(u))
+})
+
+test('the AI assistant: what the model is told', () => {
+  const now = at('2026-10-18T09:30') // a Sunday
+  const doc = S.normalize({
+    tasks: [{ text: 'Appeler Léo' }, { text: 'Payer la cantine', due: '2026-10-15' }, { text: 'Médicament', due: '2026-10-18T08:00', repeat: 'daily', list: 'Santé' }, { text: 'Vieux', done: true }, { text: 'Effacée', deleted: true }],
+    events: [{ text: 'Foot', day: '2026-10-22', time: '18:00', end: '19:30', place: 'Stade' }, { text: 'Piscine', day: '2026-10-14', repeat: 'weekly' }, { text: 'Loin', day: '2026-12-01' }],
+  })
+  const p = S.aiPrompt(doc, now, { lang: 'fr', lists: ['Courses', 'Santé'] })
+  for (const re of [/Always speak French/, /Now: Sunday 2026-10-18 09:30/, /Sun 2026-10-18 \(today\), Mon 2026-10-19 \(tomorrow\), Tue 2026-10-20/,
+    /- Thu 2026-10-22 18:00-19:30: Foot @ Stade/, /- Wed 2026-10-21 all day: Piscine/, /- late, Thu 2026-10-15: Payer la cantine/, /- Sun 2026-10-18 08:00, repeats daily: Médicament \[list Santé\]/,
+    /- no date: Appeler Léo/, /Their lists: Courses, Santé/, /"title": "Dentiste", "when": "mercredi 14h", "date": "2026-10-21"/]) assert.match(p, re)
+  assert.doesNotMatch(p, /Vieux|Effacée|Loin/) // done, deleted, beyond two weeks
+  const en = S.aiPrompt(S.empty(), now, { lang: 'en' })
+  assert.match(en, /Always speak English[\s\S]*\(nothing\)[\s\S]*\(none\)[\s\S]*"title": "Dentist", "when": "Wednesday 2pm"/)
+  assert.doesNotMatch(en, /Their lists/)
+})
+
+test('the AI assistant: what the model answers, from a big cloud model to a small local one', () => {
+  const now = at('2026-10-18T09:30') // a Sunday
+  const r = (content, opts) => S.aiReply(content, now, opts)
+  const one = (item) => r(JSON.stringify({ reply: 'ok', add: [item] })).add[0]
+  // the answer asked for
+  assert.deepEqual(r('{"reply": "C’est noté !", "add": [{"type": "event", "title": "Dentiste", "when": "mardi 14h", "date": "2026-10-20", "time": "14:00", "place": "Cabinet", "repeat": ""}]}'),
+    { reply: 'C’est noté !', add: [{ kind: 'event', text: 'Dentiste', day: '2026-10-20', time: '14:00', end: null, repeat: null, place: 'Cabinet', list: '' }] })
+  // wrapped in ```json, after a <think> block, with words around it
+  assert.equal(r('<think>mardi = 20</think>Voilà :\n```json\n{"reply": "Fait", "add": [{"type": "task", "title": "Pain", "when": "demain", "date": "2026-10-19"}]}\n```').add[0].day, '2026-10-19')
+  // a small model: items alone, no wrapper; the words around become the reply
+  const bare = r('Super !\n{"type": "task", "title": "Acheter du pain", "when": "demain matin", "date": "2026-10-19", "time": ""}\n{"type": "event", "title": "Piscine", "when": "mercredi 15h"}')
+  assert.deepEqual(bare.add.map(x => [x.kind, x.text, x.day, x.time]), [['task', 'Acheter du pain', '2026-10-19', '09:00'], ['event', 'Piscine', '2026-10-21', '15:00']])
+  assert.equal(bare.reply, 'Super !')
+  // the user's own words beat a wrong date (a small model put Wednesday for "mardi")
+  assert.deepEqual([one({ type: 'event', title: 'Dentiste', when: 'mardi à 14h', date: '2026-10-21', time: '14:00' })].map(x => [x.day, x.time]), [['2026-10-20', '14:00']])
+  // "14h" alone keeps the date given; "matin" in the time joins "demain"
+  assert.deepEqual([one({ type: 'event', title: 'Coiffeur', when: '14h', date: '2026-10-23' })].map(x => [x.day, x.time]), [['2026-10-23', '14:00']])
+  assert.deepEqual([one({ type: 'task', title: 'Pain', when: 'demain', time: 'matin' })].map(x => [x.day, x.time]), [['2026-10-19', '09:00']])
+  assert.deepEqual([one({ type: 'task', title: 'Pain', when: 'ce soir', date: '2026-10-18' })].map(x => [x.day, x.time]), [['2026-10-18', '19:00']])
+  // repetition said in words, or given; an unknown one is dropped
+  assert.deepEqual([one({ type: 'task', title: 'Réviser', when: 'tous les jours à 18h', repeat: '' })].map(x => [x.day, x.time, x.repeat]), [['2026-10-18', '18:00', 'daily']])
+  assert.equal(one({ type: 'event', title: 'Yoga', date: '2026-10-19', time: '19:00', repeat: 'weekly:1,3' }).repeat, 'weekly:1,3')
+  assert.equal(one({ type: 'event', title: 'Yoga', date: '2026-10-19', repeat: 'every day' }).repeat, null)
+  // English, ISO date with the time inside, an end time only after the start
+  assert.deepEqual([one({ type: 'event', title: 'Dentist', when: 'next Monday 9am' })].map(x => [x.day, x.time]), [['2026-10-19', '09:00']])
+  assert.deepEqual([one({ type: 'event', title: 'Train', date: '2026-10-24T07:45', end: '10:15' })].map(x => [x.day, x.time, x.end]), [['2026-10-24', '07:45', '10:15']])
+  assert.equal(one({ type: 'event', title: 'Train', date: '2026-10-24', time: '10:00', end: '09:00' }).end, null)
+  // the date left in the title, a French type name, an event without a day (a to-do to plan it), notes
+  assert.deepEqual([one({ type: 'tâche', title: 'Dentiste mardi' })].map(x => [x.kind, x.text, x.day]), [['task', 'Dentiste', '2026-10-20']])
+  assert.deepEqual([one({ type: 'rendez-vous', title: 'Coiffeur', when: '', date: '' })].map(x => [x.kind, x.day]), [['task', null]])
+  assert.deepEqual(one({ type: 'note', title: 'Code du portail : 4521', date: '2026-10-19' }), { kind: 'note', text: 'Code du portail : 4521' })
+  // nothing usable: dropped; no JSON at all: the text as said
+  assert.deepEqual(r('{"reply": "Hein ?", "add": [{"type": "song", "title": "x"}, {"type": "task", "title": ""}, "texte", null]}'), { reply: 'Hein ?', add: [] })
+  assert.deepEqual(r('Tu as foot jeudi à 18h.'), { reply: 'Tu as foot jeudi à 18h.', add: [] })
+  assert.deepEqual(r('{"reply": "Pas de JSON valide", "add": [}'), { reply: '{"reply": "Pas de JSON valide", "add": [}', add: [] })
+  assert.deepEqual(r(''), { reply: '', add: [] })
+})

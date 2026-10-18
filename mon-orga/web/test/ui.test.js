@@ -108,7 +108,7 @@ test('the interface, end to end', { skip: !playwright && 'playwright is not inst
     })
     await t.test('no raw translation key on screen', async () => {
       const keys = await page.evaluate(() => Object.keys(window.I18N.fr).filter(k => k.length > 4 && /[A-Z_]/.test(k)))
-      for (const tab of ['tasks', 'notes', 'agenda', 'plus']) {
+      for (const tab of ['tasks', 'notes', 'agenda', 'ai', 'plus']) {
         await page.click('#nav [data-tab="' + tab + '"]')
         const text = await page.textContent('body')
         assert.deepEqual(keys.filter(k => new RegExp('(^|[^A-Za-z0-9_])' + k + '($|[^A-Za-z0-9_])').test(text)), [], tab)
@@ -265,12 +265,12 @@ test('5.1.1: settings from 5.0 and 5.1, call and directions, priorities typed, a
     await page.goto(url); await page.waitForSelector('#addInput')
     await t.test('coming from 5.0 through 5.1: the new defaults, said once, planned events too if asked', async () => {
       const text = await page.textContent('.dlg')
-      assert.match(text, /5\.2[\s\S]*Nouveaux réglages par défaut[\s\S]*comme à un assistant/) // 5.1.1, then 5.2
+      assert.match(text, /5\.3[\s\S]*Nouveaux réglages par défaut[\s\S]*comme à un assistant[\s\S]*onglet Assistant/) // 5.1.1, 5.2, then 5.3
       assert.doesNotMatch(text, /tous les 3 mois/) // the 5.1 list was already seen
       assert.ok(await page.$('.dlg .menu-item:has-text("Garder mes anciens réglages de rappel")')) // they may have been chosen on purpose
       await page.click('.dlg .menu-item:has-text("Appliquer aussi au rendez-vous déjà prévu")')
       const s = await page.evaluate(() => JSON.parse(localStorage.getItem('mon-orga-settings')))
-      assert.deepEqual([s.remindEvent, s.nag, s.summary, s.news, s.before511], [[60, 1440], 10, '08:00', 53, null])
+      assert.deepEqual([s.remindEvent, s.nag, s.summary, s.news, s.before511], [[60, 1440], 10, '08:00', 54, null])
       const remind = id => page.evaluate(id => JSON.parse(localStorage.getItem('mon-orga-doc')).events.find(e => e.id === id).remind, id)
       assert.deepEqual([await remind('o'), await remind('d')], [[60, 1440], [60]]) // only the old default changes
     })
@@ -355,7 +355,7 @@ test('5.1.1: settings from 5.0 and 5.1, call and directions, priorities typed, a
       await p2.goto(url)
       await p2.click('.dlg .menu-item:has-text("Garder mes anciens réglages de rappel")')
       const s = await p2.evaluate(() => JSON.parse(localStorage.getItem('mon-orga-settings')))
-      assert.deepEqual([s.remindEvent, s.nag, s.summary, s.news], [[15], 0, null, 53])
+      assert.deepEqual([s.remindEvent, s.nag, s.summary, s.news], [[15], 0, null, 54])
       await c2.close()
     })
     assert.deepEqual(errors, [])

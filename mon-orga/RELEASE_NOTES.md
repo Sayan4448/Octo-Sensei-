@@ -9,6 +9,20 @@
 **Android** : ouvre le fichier, autorise « Installer des applis inconnues » si on te le demande. Pour mettre à jour, installe **par-dessus** l'ancienne version, sans la désinstaller (sinon tes données partent avec).
 **Windows** : l'app n'est pas signée, Windows peut afficher « Windows a protégé votre ordinateur » : clique sur **Informations complémentaires**, puis **Exécuter quand même**.
 
+## Nouveautés de la version 5.3
+
+- 🤖 **Nouvel onglet Assistant : un bot IA qui discute avec toi.** Dis-lui « J'ai dentiste mardi à 14h », « Rappelle-moi d'appeler mamie demain soir » ou « Je dois réviser tous les jours à 18h » : il range chaque rendez-vous dans l'agenda et chaque chose à faire dans les tâches. Chaque ajout s'affiche dans la discussion avec **Ouvrir** et **Annuler**. Tu peux aussi lui demander « Qu'est-ce que j'ai cette semaine ? », et il te pose une question quand il lui manque le jour. Il marche au micro 🎙️ comme au clavier.
+- 🔌 **Tu choisis l'IA qui le fait tourner** :
+  - **Google AI Studio (Gemini)** : gratuit avec un compte Google. Touche *Obtenir une clé*, crée-la, colle-la, et c'est parti ;
+  - **OpenAI (ChatGPT)** : avec une clé payante ;
+  - **une IA locale sur ton PC** : **Ollama** ou **LM Studio**. Rien ne sort de chez toi. Depuis le téléphone, mets l'adresse du PC sur le Wi-Fi (par exemple `http://192.168.1.20:11434/v1`) ;
+  - ou tout autre service compatible OpenAI (Mistral, Groq, OpenRouter…).
+
+  L'app demande au service la liste de ses modèles et prend toute seule le bon (rapide et pas cher), ou celui que tu écris.
+- 🔒 **Ta clé reste sur ton appareil** : elle n'est ni dans les réglages, ni dans les sauvegardes, ni dans les exports. Le bot ne reçoit que ce que tu lui écris, et tes rendez-vous et tâches des 2 prochaines semaines. Tes notes ne lui sont pas envoyées. Une adresse en `http://` sans chiffrement n'est acceptée que sur ton réseau local.
+- 📅 Les jours sont comptés par l'app, pas par l'IA. Une petite IA locale qui se trompe de date (« mardi » pris pour mercredi) range quand même au bon jour, grâce aux mots que tu as dits.
+- L'ajout rapide en bas de chaque onglet marche toujours comme avant, sans Internet.
+
 ## Nouveautés de la version 5.2.1
 
 - 🗑️ « Je sors les poubelles **ce matin et ce soir** » crée bien **deux rappels** (8 h et 19 h) au lieu d'un seul. « Matin et soir » tout seul veut dire tous les jours (« Brosser les dents matin et soir »), et « matin midi soir » marche aussi sans « et ».

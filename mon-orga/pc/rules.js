@@ -39,4 +39,15 @@ function backup(folder, day, data) {
   fs.readdirSync(folder).filter(f => BACKUP.test(f)).sort().reverse().slice(14).forEach(f => fs.unlinkSync(path.join(folder, f)))
 }
 
-module.exports = { nag, answered, quiet, backup }
+// One request to the AI service: POST the body (GET when empty), with the key. Never throws: {status, body} or {error}.
+async function ai(fetch, url, key, body) {
+  try {
+    const headers = { Accept: 'application/json' }
+    if (key) headers.Authorization = 'Bearer ' + key
+    if (body) headers['Content-Type'] = 'application/json; charset=utf-8'
+    const r = await fetch(url, { method: body ? 'POST' : 'GET', headers, body: body || undefined, signal: AbortSignal.timeout(180000) }) // a local AI on a slow PC takes its time
+    return { status: r.status, body: await r.text() }
+  } catch (e) { return { error: 'network', detail: String((e && e.message) || e) } }
+}
+
+module.exports = { nag, answered, quiet, backup, ai }

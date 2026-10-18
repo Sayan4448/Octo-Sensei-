@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld('desktop', {
   chooseBackupFolder: () => call('chooseBackupFolder'),
   clearBackupFolder: () => call('clearBackupFolder'),
   backupInfo: () => call('backupInfo'),
+  ai: (url, body) => call('ai', url, body),
+  aiKey: key => call('aiKey', key),
   onChange: f => ipcRenderer.on('changed', () => f()),
   onAction: f => ipcRenderer.on('action', (e, a) => f(a)),
 })

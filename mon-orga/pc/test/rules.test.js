@@ -70,3 +70,12 @@ test('daily backup: one file a day, the 14 newest kept, other files left alone',
     assert.throws(() => rules.backup(path.join(dir, 'unplugged'), '2026-10-17', {})) // main.js logs it and keeps `last`
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })
+
+test('the assistant\'s request: key and body sent, the answer or the failure given back, never thrown', async () => {
+  const seen = []
+  const fetch = async (url, o) => { seen.push([url, o.method, o.headers.Authorization, o.body]); if (/down/.test(url)) throw new Error('ECONNREFUSED'); return { status: 200, text: async () => '{"ok":1}' } }
+  assert.deepEqual(await rules.ai(fetch, 'https://x/v1/chat/completions', 'k1', '{"m":1}'), { status: 200, body: '{"ok":1}' })
+  assert.deepEqual(await rules.ai(fetch, 'http://localhost/v1/models', null, ''), { status: 200, body: '{"ok":1}' })
+  assert.deepEqual(seen, [['https://x/v1/chat/completions', 'POST', 'Bearer k1', '{"m":1}'], ['http://localhost/v1/models', 'GET', undefined, undefined]])
+  assert.deepEqual(await rules.ai(fetch, 'http://down/v1', null, ''), { error: 'network', detail: 'ECONNREFUSED' })
+})

@@ -487,5 +487,12 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface fun clearBackupFolder() = Backup.clear(this@MainActivity)
 
         @JavascriptInterface fun backupInfo(): String = Backup.info(this@MainActivity)
+
+        // The assistant: the page names the service and the message; the key is kept here and only added to the request.
+        @JavascriptInterface fun aiKey(key: String) = prefs().edit().apply { if (key.isBlank()) remove(AI_KEY) else putString(AI_KEY, key.trim()) }.apply()
+
+        @JavascriptInterface fun ai(id: String, url: String, body: String) {
+            thread { answer(id, Ai.call(url, prefs().getString(AI_KEY, null), body.ifEmpty { null })) }
+        }
     }
 }
