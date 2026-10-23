@@ -52,7 +52,7 @@ jobs:
           java-version: 21
       - run: ./gradlew testDebugUnitTest assembleRelease --no-daemon
       - run: mkdir -p ../out && cp build/outputs/apk/release/MonOrga-release.apk "../out/Mon-Orga-${TAG#v}.apk"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: android
           path: mon-orga/out/*.apk
@@ -76,7 +76,7 @@ jobs:
       - run: npm version "${TAG#v}" --no-git-tag-version --allow-same-version
         shell: bash
       - run: npm run dist:win
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: mon-orga/pc/dist/*.exe
@@ -99,7 +99,7 @@ jobs:
       - run: npm ci
       - run: npm version "${TAG#v}" --no-git-tag-version --allow-same-version
       - run: npm run dist:linux
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux
           path: mon-orga/pc/dist/*.AppImage

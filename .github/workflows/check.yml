@@ -73,7 +73,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run dist:win
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: mon-orga-windows
           path: mon-orga/pc/dist/*.exe
